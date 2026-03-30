@@ -1,11 +1,14 @@
 package com.sudoku.game.ui.component
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -67,7 +70,8 @@ fun NumberPad(
                     number = num,
                     onClick = { onNumberClick(num) },
                     isComplete = count >= 9,
-                    isNoteMode = isNoteMode
+                    isNoteMode = isNoteMode,
+                    remaining = 9 - count
                 )
             }
         }
@@ -79,7 +83,8 @@ private fun NumberButton(
     number: Int,
     onClick: () -> Unit,
     isComplete: Boolean,
-    isNoteMode: Boolean
+    isNoteMode: Boolean,
+    remaining: Int
 ) {
     Button(
         onClick = onClick,
@@ -100,11 +105,25 @@ private fun NumberButton(
         ),
         contentPadding = ButtonDefaults.TextButtonContentPadding
     ) {
-        Text(
-            text = number.toString(),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = number.toString(),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Center)
+            )
+            if (remaining in 1..8) {
+                Text(
+                    text = remaining.toString(),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 1.dp, end = 1.dp)
+                )
+            }
+        }
     }
 }
 
