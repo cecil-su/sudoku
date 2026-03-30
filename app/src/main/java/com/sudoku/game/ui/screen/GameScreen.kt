@@ -1,11 +1,8 @@
 package com.sudoku.game.ui.screen
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,8 +44,11 @@ fun GameScreen(
     onBack: () -> Unit
 ) {
     val gameState by viewModel.state.collectAsState()
+    val elapsedSeconds by viewModel.elapsedSeconds.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
     val numberCounts by viewModel.numberCounts.collectAsState()
+    val canUndo by viewModel.canUndo.collectAsState()
+    val canRedo by viewModel.canRedo.collectAsState()
     val isDarkTheme = isSystemInDarkTheme()
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -85,7 +85,7 @@ fun GameScreen(
         ) {
             GameTopBar(
                 difficultyLabel = state.difficulty.label,
-                elapsedSeconds = state.elapsedSeconds,
+                elapsedSeconds = elapsedSeconds,
                 onBack = {
                     viewModel.exitGame()
                     onBack()
@@ -104,7 +104,7 @@ fun GameScreen(
 
             if (state.isCompleted) {
                 CompletionBanner(
-                    elapsedSeconds = state.elapsedSeconds,
+                    elapsedSeconds = elapsedSeconds,
                     onBackToMenu = {
                         viewModel.exitGame()
                         onBack()
@@ -121,6 +121,8 @@ fun GameScreen(
                     isNoteMode = state.isNoteMode,
                     numberCounts = numberCounts,
                     hintsRemaining = GameState.MAX_HINTS - state.hintsUsed,
+                    canUndo = canUndo,
+                    canRedo = canRedo,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 16.dp)
                 )
             }
@@ -136,15 +138,8 @@ private fun CompletionBanner(
     val scale = remember { Animatable(0.3f) }
     val alpha = remember { Animatable(0f) }
 
-    LaunchedEffect(Unit) {
-        alpha.animateTo(1f, animationSpec = tween(400))
-    }
-    LaunchedEffect(Unit) {
-        scale.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(500, easing = FastOutSlowInEasing)
-        )
-    }
+    LaunchedEffect(Unit) { alpha.animateTo(1f, tween(400)) }
+    LaunchedEffect(Unit) { scale.animateTo(1f, tween(500, easing = FastOutSlowInEasing)) }
 
     Box(
         modifier = Modifier
@@ -154,14 +149,9 @@ private fun CompletionBanner(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .scale(scale.value)
-                .alpha(alpha.value)
+            modifier = Modifier.scale(scale.value).alpha(alpha.value)
         ) {
-            Text(
-                text = "🎉",
-                fontSize = 64.sp
-            )
+            Text(text = "🎉", fontSize = 64.sp)
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = "恭喜完成！",
@@ -170,10 +160,8 @@ private fun CompletionBanner(
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(8.dp))
-            val mins = elapsedSeconds / 60
-            val secs = elapsedSeconds % 60
             Text(
-                text = "用时 %02d:%02d".format(mins, secs),
+                text = "用时 %02d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -7,11 +7,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -19,7 +17,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,19 +32,20 @@ fun NumberPad(
     isNoteMode: Boolean,
     numberCounts: Map<Int, Int>,
     hintsRemaining: Int,
+    canUndo: Boolean,
+    canRedo: Boolean,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Action buttons row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            ActionButton(text = "撤销", onClick = onUndo)
-            ActionButton(text = "重做", onClick = onRedo)
+            ActionButton(text = "撤销", onClick = onUndo, enabled = canUndo)
+            ActionButton(text = "重做", onClick = onRedo, enabled = canRedo)
             ActionButton(
                 text = if (isNoteMode) "笔记 ON" else "笔记",
                 onClick = onNoteToggle,
@@ -59,18 +57,16 @@ fun NumberPad(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Number buttons row (1-9)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             for (num in 1..9) {
                 val count = numberCounts.getOrDefault(num, 0)
-                val isComplete = count >= 9
                 NumberButton(
                     number = num,
                     onClick = { onNumberClick(num) },
-                    isComplete = isComplete,
+                    isComplete = count >= 9,
                     isNoteMode = isNoteMode
                 )
             }
@@ -88,7 +84,7 @@ private fun NumberButton(
     Button(
         onClick = onClick,
         enabled = !isComplete,
-        modifier = Modifier.size(38.dp),
+        modifier = Modifier.size(48.dp),
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (isNoteMode)

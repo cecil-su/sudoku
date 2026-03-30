@@ -14,9 +14,8 @@ class GameRepository(private val context: Context) {
 
     private val saveFile get() = File(context.filesDir, "saved_game.json")
 
-    suspend fun saveGame(state: GameState) = withContext(Dispatchers.IO) {
-        val json = serializeState(state)
-        // Atomic write: write to temp file first, then rename
+    suspend fun saveGame(state: GameState, elapsedSeconds: Long) = withContext(Dispatchers.IO) {
+        val json = serializeState(state, elapsedSeconds)
         val tmpFile = File(context.filesDir, "saved_game.tmp")
         tmpFile.writeText(json.toString())
         tmpFile.renameTo(saveFile)
@@ -43,14 +42,16 @@ class GameRepository(private val context: Context) {
         saveFile.delete()
     }
 
-    private fun serializeState(state: GameState): JSONObject {
+    private fun serializeState(state: GameState, elapsedSeconds: Long): JSONObject {
         return JSONObject().apply {
             put("difficulty", state.difficulty.name)
-            put("elapsedSeconds", state.elapsedSeconds)
+            put("elapsedSeconds", elapsedSeconds)
             put("hintsUsed", state.hintsUsed)
             put("errorCount", state.errorCount)
             put("isNoteMode", state.isNoteMode)
             put("isCompleted", state.isCompleted)
+            put("selectedRow", state.selectedRow)
+            put("selectedCol", state.selectedCol)
             put("cells", serializeCells(state.cells))
             put("solution", serializeSolution(state.solution))
         }
@@ -91,11 +92,13 @@ class GameRepository(private val context: Context) {
             cells = cells,
             solution = solution,
             difficulty = difficulty,
-            elapsedSeconds = json.getLong("elapsedSeconds"),
             hintsUsed = json.getInt("hintsUsed"),
             errorCount = json.optInt("errorCount", 0),
             isNoteMode = json.optBoolean("isNoteMode", false),
-            isCompleted = json.optBoolean("isCompleted", false)
+            isCompleted = json.optBoolean("isCompleted", false),
+            selectedRow = json.optInt("selectedRow", -1),
+            selectedCol = json.optInt("selectedCol", -1),
+            restoredElapsedSeconds = json.getLong("elapsedSeconds")
         )
     }
 
