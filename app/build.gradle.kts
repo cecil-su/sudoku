@@ -20,9 +20,9 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            val keystoreFilePath = System.getenv("KEYSTORE_FILE")
-            if (keystoreFilePath != null) {
+        val keystoreFilePath = System.getenv("KEYSTORE_FILE")
+        if (!keystoreFilePath.isNullOrBlank()) {
+            create("release") {
                 storeFile = file(keystoreFilePath)
                 storePassword = System.getenv("STORE_PASSWORD")
                 keyAlias = System.getenv("KEY_ALIAS")
@@ -40,7 +40,7 @@ android {
                 "proguard-rules.pro"
             )
             val keystoreFilePath = System.getenv("KEYSTORE_FILE")
-            if (keystoreFilePath != null) {
+            if (!keystoreFilePath.isNullOrBlank()) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
