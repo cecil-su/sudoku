@@ -69,10 +69,11 @@
 - **状态：** pending
 
 ### 阶段 8：打磨与交付
+- [x] 推送代码到 GitHub (cecil-su/sudoku)
+- [x] 创建 v1.0.0 tag 触发自动发版
 - [ ] 动画效果（选中、完成庆祝等）
-- [ ] 应用图标和启动页
-- [ ] 最终检查与交付
-- **状态：** pending
+- [ ] 应用图标优化和启动页
+- **状态：** in_progress
 
 ## 关键问题
 1. ~~使用 Jetpack Compose 还是传统 XML 布局？~~ → **Jetpack Compose**

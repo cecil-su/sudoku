@@ -1,22 +1,31 @@
 package com.sudoku.game.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.sudoku.game.data.GameRepository
+import com.sudoku.game.data.StatsRepository
 import com.sudoku.game.engine.SudokuGenerator
 import com.sudoku.game.engine.SudokuValidator
 import com.sudoku.game.model.Cell
 import com.sudoku.game.model.Difficulty
 import com.sudoku.game.model.GameState
+import com.sudoku.game.model.GameStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class GameViewModel : ViewModel() {
+class GameViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val gameRepo = GameRepository(application)
+    private val statsRepo = StatsRepository(application)
 
     private val _state = MutableStateFlow<GameState?>(null)
     val state: StateFlow<GameState?> = _state.asStateFlow()
@@ -24,9 +33,22 @@ class GameViewModel : ViewModel() {
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
 
+    private val _hasSavedGame = MutableStateFlow(false)
+    val hasSavedGame: StateFlow<Boolean> = _hasSavedGame.asStateFlow()
+
+    val stats: StateFlow<GameStats> = statsRepo.getStats()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, GameStats())
+
     private var timerJob: Job? = null
+    private var autoSaveJob: Job? = null
     private val undoStack = mutableListOf<List<List<Cell>>>()
     private val redoStack = mutableListOf<List<List<Cell>>>()
+
+    init {
+        viewModelScope.launch {
+            _hasSavedGame.value = gameRepo.hasSavedGame()
+        }
+    }
 
     fun newGame(difficulty: Difficulty) {
         timerJob?.cancel()
@@ -38,7 +60,22 @@ class GameViewModel : ViewModel() {
             val gameState = SudokuGenerator.generate(difficulty)
             _state.value = gameState
             _isGenerating.value = false
+            statsRepo.recordGameStarted()
             startTimer()
+            startAutoSave()
+        }
+    }
+
+    fun continueGame() {
+        viewModelScope.launch {
+            val saved = gameRepo.loadGame()
+            if (saved != null && !saved.isCompleted) {
+                _state.value = saved
+                undoStack.clear()
+                redoStack.clear()
+                startTimer()
+                startAutoSave()
+            }
         }
     }
 
@@ -54,7 +91,6 @@ class GameViewModel : ViewModel() {
         val cell = current.getCell(row, col)
         if (cell.isGiven) return
 
-        // Save state for undo
         saveUndoState(current.cells)
         redoStack.clear()
 
@@ -72,23 +108,21 @@ class GameViewModel : ViewModel() {
             val newCells = current.cells.map { it.toMutableList() }.toMutableList()
             val cell = newCells[row][col]
 
-            // Toggle: if same number, clear it
             val newValue = if (cell.value == number) 0 else number
             newCells[row][col] = cell.copy(value = newValue, notes = emptySet())
 
-            // Auto-remove notes from peers when placing a number
             if (newValue != 0) {
                 removeNotesFromPeers(newCells, row, col, newValue)
             }
 
-            // Update error states
             val updatedCells = updateErrors(newCells)
-
-            // Check completion
             val cellsList = updatedCells.map { it.toList() }
             val isCompleted = SudokuValidator.isComplete(cellsList)
 
-            if (isCompleted) timerJob?.cancel()
+            if (isCompleted) {
+                timerJob?.cancel()
+                onGameCompleted(current.difficulty, current.elapsedSeconds)
+            }
 
             current.copy(cells = cellsList, isCompleted = isCompleted)
         }
@@ -150,7 +184,6 @@ class GameViewModel : ViewModel() {
         val current = _state.value ?: return
         if (current.hintsUsed >= GameState.MAX_HINTS) return
 
-        // Find first empty cell with a wrong value or no value
         val cells = current.cells
         for (r in 0 until 9) {
             for (c in 0 until 9) {
@@ -171,7 +204,10 @@ class GameViewModel : ViewModel() {
                         val updatedCells = updateErrors(newCells)
                         val cellsList = updatedCells.map { it.toList() }
                         val isCompleted = SudokuValidator.isComplete(cellsList)
-                        if (isCompleted) timerJob?.cancel()
+                        if (isCompleted) {
+                            timerJob?.cancel()
+                            onGameCompleted(state.difficulty, state.elapsedSeconds)
+                        }
                         state.copy(
                             cells = cellsList,
                             selectedCell = Pair(r, c),
@@ -187,11 +223,28 @@ class GameViewModel : ViewModel() {
 
     fun pauseTimer() {
         timerJob?.cancel()
+        saveNow()
     }
 
     fun resumeTimer() {
         val current = _state.value ?: return
         if (!current.isCompleted) startTimer()
+    }
+
+    private fun saveNow() {
+        val current = _state.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            gameRepo.saveGame(current)
+            _hasSavedGame.value = true
+        }
+    }
+
+    private fun onGameCompleted(difficulty: Difficulty, timeSeconds: Long) {
+        viewModelScope.launch {
+            statsRepo.recordGameCompleted(difficulty, timeSeconds)
+            gameRepo.deleteSave()
+            _hasSavedGame.value = false
+        }
     }
 
     private fun startTimer() {
@@ -204,6 +257,20 @@ class GameViewModel : ViewModel() {
         }
     }
 
+    private fun startAutoSave() {
+        autoSaveJob?.cancel()
+        autoSaveJob = viewModelScope.launch {
+            while (true) {
+                delay(30_000) // Auto-save every 30 seconds
+                val current = _state.value ?: continue
+                if (!current.isCompleted) {
+                    gameRepo.saveGame(current)
+                    _hasSavedGame.value = true
+                }
+            }
+        }
+    }
+
     private fun saveUndoState(cells: List<List<Cell>>) {
         undoStack.add(cells)
         if (undoStack.size > 100) undoStack.removeAt(0)
@@ -211,21 +278,16 @@ class GameViewModel : ViewModel() {
 
     private fun removeNotesFromPeers(
         cells: MutableList<MutableList<Cell>>,
-        row: Int,
-        col: Int,
-        value: Int
+        row: Int, col: Int, value: Int
     ) {
         for (i in 0 until 9) {
-            // Same row
             if (i != col && value in cells[row][i].notes) {
                 cells[row][i] = cells[row][i].copy(notes = cells[row][i].notes - value)
             }
-            // Same column
             if (i != row && value in cells[i][col].notes) {
                 cells[i][col] = cells[i][col].copy(notes = cells[i][col].notes - value)
             }
         }
-        // Same box
         val boxRow = (row / 3) * 3
         val boxCol = (col / 3) * 3
         for (r in boxRow until boxRow + 3) {

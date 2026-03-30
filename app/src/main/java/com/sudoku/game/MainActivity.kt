@@ -12,7 +12,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.sudoku.game.model.Difficulty
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import com.sudoku.game.ui.screen.GameScreen
 import com.sudoku.game.ui.screen.HomeScreen
 import com.sudoku.game.ui.theme.SudokuTheme
@@ -33,11 +34,19 @@ class MainActivity : ComponentActivity() {
 
                     NavHost(navController = navController, startDestination = "home") {
                         composable("home") {
+                            val hasSaved by gameViewModel.hasSavedGame.collectAsState()
+                            val stats by gameViewModel.stats.collectAsState()
                             HomeScreen(
                                 onStartGame = { difficulty ->
                                     gameViewModel.newGame(difficulty)
                                     navController.navigate("game")
-                                }
+                                },
+                                onContinueGame = {
+                                    gameViewModel.continueGame()
+                                    navController.navigate("game")
+                                },
+                                hasSavedGame = hasSaved,
+                                stats = stats
                             )
                         }
                         composable("game") {
