@@ -102,8 +102,8 @@ private fun DrawScope.drawNumbers(
 
     // Convert px to sp: divide by density*fontScale so text stays proportional to cell
     val pxToSp = 1f / (density * fontScale)
-    val numberSize = (cellSize * 0.55f * pxToSp).sp
-    val noteSize = (cellSize * 0.22f * pxToSp).sp
+    val numberSize = (cellSize * 0.40f * pxToSp).sp
+    val noteSize = (cellSize * 0.18f * pxToSp).sp
 
     // Cache text measurements — digits 1-9 have fixed sizes at a given font size
     val givenMeasured = measureDigits(textMeasurer, numberSize, givenColor, FontWeight.Bold)
