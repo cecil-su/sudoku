@@ -100,8 +100,10 @@ private fun DrawScope.drawNumbers(
     val errorTextColor = ErrorColor
     val noteColor = if (isDarkTheme) NoteColorDark else NoteColor
 
-    val numberSize = (cellSize * 0.55f).sp
-    val noteSize = (cellSize * 0.22f).sp
+    // Convert px to sp: divide by density*fontScale so text stays proportional to cell
+    val pxToSp = 1f / (density * fontScale)
+    val numberSize = (cellSize * 0.55f * pxToSp).sp
+    val noteSize = (cellSize * 0.22f * pxToSp).sp
 
     // Cache text measurements — digits 1-9 have fixed sizes at a given font size
     val givenMeasured = measureDigits(textMeasurer, numberSize, givenColor, FontWeight.Bold)
