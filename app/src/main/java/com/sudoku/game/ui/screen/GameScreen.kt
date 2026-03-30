@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.sudoku.game.engine.SudokuValidator
 import com.sudoku.game.model.GameState
 import com.sudoku.game.ui.component.GameTopBar
 import com.sudoku.game.ui.component.NumberPad
@@ -36,6 +35,7 @@ fun GameScreen(
 ) {
     val gameState by viewModel.state.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
+    val numberCounts by viewModel.numberCounts.collectAsState()
     val isDarkTheme = isSystemInDarkTheme()
 
     // Pause/resume timer with lifecycle
@@ -75,7 +75,7 @@ fun GameScreen(
                 difficultyLabel = state.difficulty.label,
                 elapsedSeconds = state.elapsedSeconds,
                 onBack = {
-                    viewModel.pauseTimer()
+                    viewModel.exitGame()
                     onBack()
                 }
             )
@@ -93,10 +93,6 @@ fun GameScreen(
             if (state.isCompleted) {
                 CompletionBanner(elapsedSeconds = state.elapsedSeconds)
             } else {
-                val numberCounts = (1..9).associateWith { num ->
-                    SudokuValidator.countValue(state.cells, num)
-                }
-
                 NumberPad(
                     onNumberClick = { viewModel.inputNumber(it) },
                     onClear = { viewModel.clearCell() },
