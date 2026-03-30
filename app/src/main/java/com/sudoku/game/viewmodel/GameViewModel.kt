@@ -10,7 +10,6 @@ import com.sudoku.game.engine.SudokuValidator
 import com.sudoku.game.model.Cell
 import com.sudoku.game.model.Difficulty
 import com.sudoku.game.model.GameState
-import com.sudoku.game.model.GameStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -19,7 +18,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -39,15 +37,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _hasSavedGame = MutableStateFlow(false)
     val hasSavedGame: StateFlow<Boolean> = _hasSavedGame.asStateFlow()
 
-    // Pre-computed number counts to avoid recalculation on every recomposition
     private val _numberCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
     val numberCounts: StateFlow<Map<Int, Int>> = _numberCounts.asStateFlow()
 
-    val stats: StateFlow<GameStats> = statsRepo.getStats()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, GameStats())
+    val stats = statsRepo.getStats()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.sudoku.game.model.GameStats())
 
     private var timerJob: Job? = null
     private var autoSaveJob: Job? = null
+
+    // Synchronized via stateMutex to prevent CAS-retry duplication
+    private val stateMutex = Mutex()
     private val undoStack = mutableListOf<List<List<Cell>>>()
     private val redoStack = mutableListOf<List<List<Cell>>>()
 
@@ -59,8 +59,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun newGame(difficulty: Difficulty) {
         stopAllJobs()
-        undoStack.clear()
-        redoStack.clear()
+        viewModelScope.launch {
+            stateMutex.withLock {
+                undoStack.clear()
+                redoStack.clear()
+            }
+        }
 
         viewModelScope.launch(Dispatchers.Default) {
             _isGenerating.value = true
@@ -80,8 +84,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (saved != null && !saved.isCompleted) {
                 stopAllJobs()
                 _state.value = saved
-                undoStack.clear()
-                redoStack.clear()
+                stateMutex.withLock {
+                    undoStack.clear()
+                    redoStack.clear()
+                }
                 updateNumberCounts(saved)
                 startTimer()
                 startAutoSave()
@@ -90,31 +96,43 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun exitGame() {
-        saveNow()
+        // Capture current state before clearing
+        val current = _state.value
         stopAllJobs()
         _state.value = null
+        if (current != null && !current.isCompleted) {
+            viewModelScope.launch(Dispatchers.IO) {
+                saveMutex.withLock {
+                    gameRepo.saveGame(current)
+                    _hasSavedGame.value = true
+                }
+            }
+        }
     }
 
     fun selectCell(row: Int, col: Int) {
         if (row !in 0..8 || col !in 0..8) return
-        _state.update { it?.copy(selectedCell = Pair(row, col)) }
+        _state.value = _state.value?.copy(selectedCell = Pair(row, col))
     }
 
     fun inputNumber(number: Int) {
         if (number !in 1..9) return
-        _state.update { current ->
-            if (current == null || current.isCompleted) return@update current
-            val (row, col) = current.selectedCell ?: return@update current
-            val cell = current.getCell(row, col)
-            if (cell.isGiven) return@update current
+        viewModelScope.launch {
+            stateMutex.withLock {
+                val current = _state.value ?: return@withLock
+                if (current.isCompleted) return@withLock
+                val (row, col) = current.selectedCell ?: return@withLock
+                val cell = current.getCell(row, col)
+                if (cell.isGiven) return@withLock
 
-            saveUndoState(current.cells)
-            redoStack.clear()
+                pushUndo(current.cells)
 
-            if (current.isNoteMode) {
-                applyNote(current, row, col, number)
-            } else {
-                applyValue(current, row, col, number)
+                val newState = if (current.isNoteMode) {
+                    applyNote(current, row, col, number)
+                } else {
+                    applyValue(current, row, col, number)
+                }
+                _state.value = newState
             }
         }
     }
@@ -156,99 +174,116 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearCell() {
-        _state.update { current ->
-            if (current == null || current.isCompleted) return@update current
-            val (row, col) = current.selectedCell ?: return@update current
-            val cell = current.getCell(row, col)
-            if (cell.isGiven) return@update current
+        viewModelScope.launch {
+            stateMutex.withLock {
+                val current = _state.value ?: return@withLock
+                if (current.isCompleted) return@withLock
+                val (row, col) = current.selectedCell ?: return@withLock
+                val cell = current.getCell(row, col)
+                if (cell.isGiven) return@withLock
 
-            saveUndoState(current.cells)
-            redoStack.clear()
+                pushUndo(current.cells)
 
-            val newCells = current.cells.map { it.toMutableList() }.toMutableList()
-            newCells[row][col] = cell.copy(value = 0, notes = emptySet())
-            val updatedCells = updateErrors(newCells)
-            val newState = current.copy(cells = updatedCells.map { it.toList() })
-            updateNumberCounts(newState)
-            newState
+                val newCells = current.cells.map { it.toMutableList() }.toMutableList()
+                newCells[row][col] = cell.copy(value = 0, notes = emptySet())
+                val updatedCells = updateErrors(newCells)
+                val newState = current.copy(cells = updatedCells.map { it.toList() })
+                updateNumberCounts(newState)
+                _state.value = newState
+            }
         }
     }
 
     fun toggleNoteMode() {
-        _state.update { it?.copy(isNoteMode = !it.isNoteMode) }
+        _state.value = _state.value?.let { it.copy(isNoteMode = !it.isNoteMode) }
     }
 
     fun undo() {
-        if (undoStack.isEmpty()) return
-        _state.update { current ->
-            if (current == null) return@update null
-            redoStack.add(current.cells)
-            if (redoStack.size > MAX_STACK_SIZE) redoStack.removeAt(0)
-            val previous = undoStack.removeAt(undoStack.lastIndex)
-            val newState = current.copy(cells = previous)
-            updateNumberCounts(newState)
-            newState
+        viewModelScope.launch {
+            stateMutex.withLock {
+                if (undoStack.isEmpty()) return@withLock
+                val current = _state.value ?: return@withLock
+                redoStack.add(current.cells)
+                if (redoStack.size > MAX_STACK_SIZE) redoStack.removeAt(0)
+                val previous = undoStack.removeAt(undoStack.lastIndex)
+                val newState = current.copy(cells = previous)
+                updateNumberCounts(newState)
+                _state.value = newState
+            }
         }
     }
 
     fun redo() {
-        if (redoStack.isEmpty()) return
-        _state.update { current ->
-            if (current == null) return@update null
-            undoStack.add(current.cells)
-            val next = redoStack.removeAt(redoStack.lastIndex)
-            val newState = current.copy(cells = next)
-            updateNumberCounts(newState)
-            newState
+        viewModelScope.launch {
+            stateMutex.withLock {
+                if (redoStack.isEmpty()) return@withLock
+                val current = _state.value ?: return@withLock
+                undoStack.add(current.cells)
+                if (undoStack.size > MAX_STACK_SIZE) undoStack.removeAt(0)
+                val next = redoStack.removeAt(redoStack.lastIndex)
+                val newState = current.copy(cells = next)
+                updateNumberCounts(newState)
+                _state.value = newState
+            }
         }
     }
 
     fun useHint() {
-        _state.update { current ->
-            if (current == null || current.isCompleted) return@update current
-            if (current.hintsUsed >= GameState.MAX_HINTS) return@update current
+        viewModelScope.launch {
+            stateMutex.withLock {
+                val current = _state.value ?: return@withLock
+                if (current.isCompleted) return@withLock
+                if (current.hintsUsed >= GameState.MAX_HINTS) return@withLock
 
-            val cells = current.cells
-            for (r in 0 until 9) {
-                for (c in 0 until 9) {
-                    val cell = cells[r][c]
-                    if (!cell.isGiven && (cell.value == 0 || cell.value != current.solution[r][c])) {
-                        saveUndoState(current.cells)
-                        redoStack.clear()
+                val cells = current.cells
+                for (r in 0 until 9) {
+                    for (c in 0 until 9) {
+                        val cell = cells[r][c]
+                        if (!cell.isGiven && (cell.value == 0 || cell.value != current.solution[r][c])) {
+                            pushUndo(current.cells)
 
-                        val newCells = cells.map { it.toMutableList() }.toMutableList()
-                        newCells[r][c] = cell.copy(
-                            value = current.solution[r][c],
-                            notes = emptySet(),
-                            isError = false
-                        )
-                        removeNotesFromPeers(newCells, r, c, current.solution[r][c])
-                        val updatedCells = updateErrors(newCells)
-                        val cellsList = updatedCells.map { it.toList() }
-                        val isCompleted = SudokuValidator.isComplete(cellsList)
-                        if (isCompleted) {
-                            timerJob?.cancel()
-                            onGameCompleted(current.difficulty, current.elapsedSeconds)
+                            val newCells = cells.map { it.toMutableList() }.toMutableList()
+                            newCells[r][c] = cell.copy(
+                                value = current.solution[r][c],
+                                notes = emptySet(),
+                                isError = false
+                            )
+                            removeNotesFromPeers(newCells, r, c, current.solution[r][c])
+                            val updatedCells = updateErrors(newCells)
+                            val cellsList = updatedCells.map { it.toList() }
+                            val isCompleted = SudokuValidator.isComplete(cellsList)
+                            if (isCompleted) {
+                                timerJob?.cancel()
+                                onGameCompleted(current.difficulty, current.elapsedSeconds)
+                            }
+                            val newState = current.copy(
+                                cells = cellsList,
+                                selectedCell = Pair(r, c),
+                                hintsUsed = current.hintsUsed + 1,
+                                isCompleted = isCompleted
+                            )
+                            updateNumberCounts(newState)
+                            _state.value = newState
+                            return@withLock
                         }
-                        val newState = current.copy(
-                            cells = cellsList,
-                            selectedCell = Pair(r, c),
-                            hintsUsed = current.hintsUsed + 1,
-                            isCompleted = isCompleted
-                        )
-                        updateNumberCounts(newState)
-                        return@update newState
                     }
                 }
             }
-            current
         }
     }
 
     fun pauseTimer() {
         timerJob?.cancel()
         timerJob = null
-        saveNow()
+        val snapshot = _state.value
+        if (snapshot != null && !snapshot.isCompleted) {
+            viewModelScope.launch(Dispatchers.IO) {
+                saveMutex.withLock {
+                    gameRepo.saveGame(snapshot)
+                    _hasSavedGame.value = true
+                }
+            }
+        }
     }
 
     fun resumeTimer() {
@@ -261,17 +296,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         timerJob = null
         autoSaveJob?.cancel()
         autoSaveJob = null
-    }
-
-    private fun saveNow() {
-        val current = _state.value ?: return
-        if (current.isCompleted) return
-        viewModelScope.launch(Dispatchers.IO) {
-            saveMutex.withLock {
-                gameRepo.saveGame(current)
-                _hasSavedGame.value = true
-            }
-        }
     }
 
     private fun onGameCompleted(difficulty: Difficulty, timeSeconds: Long) {
@@ -289,7 +313,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         timerJob = viewModelScope.launch {
             while (true) {
                 delay(1000)
-                _state.update { it?.copy(elapsedSeconds = it.elapsedSeconds + 1) }
+                _state.value = _state.value?.let { it.copy(elapsedSeconds = it.elapsedSeconds + 1) }
             }
         }
     }
@@ -299,10 +323,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         autoSaveJob = viewModelScope.launch {
             while (true) {
                 delay(AUTO_SAVE_INTERVAL_MS)
-                val current = _state.value ?: continue
-                if (!current.isCompleted) {
+                val snapshot = _state.value ?: continue
+                if (!snapshot.isCompleted) {
                     saveMutex.withLock {
-                        gameRepo.saveGame(current)
+                        gameRepo.saveGame(snapshot)
                         _hasSavedGame.value = true
                     }
                 }
@@ -316,9 +340,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun saveUndoState(cells: List<List<Cell>>) {
+    /** Must be called inside stateMutex.withLock */
+    private fun pushUndo(cells: List<List<Cell>>) {
         undoStack.add(cells)
         if (undoStack.size > MAX_STACK_SIZE) undoStack.removeAt(0)
+        redoStack.clear()
     }
 
     private fun removeNotesFromPeers(

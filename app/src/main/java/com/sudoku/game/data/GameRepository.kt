@@ -16,7 +16,10 @@ class GameRepository(private val context: Context) {
 
     suspend fun saveGame(state: GameState) = withContext(Dispatchers.IO) {
         val json = serializeState(state)
-        saveFile.writeText(json.toString())
+        // Atomic write: write to temp file first, then rename
+        val tmpFile = File(context.filesDir, "saved_game.tmp")
+        tmpFile.writeText(json.toString())
+        tmpFile.renameTo(saveFile)
     }
 
     suspend fun loadGame(): GameState? = withContext(Dispatchers.IO) {
@@ -24,8 +27,10 @@ class GameRepository(private val context: Context) {
         try {
             val json = JSONObject(saveFile.readText())
             deserializeState(json)
-        } catch (e: Exception) {
+        } catch (e: org.json.JSONException) {
             saveFile.delete()
+            null
+        } catch (e: java.io.IOException) {
             null
         }
     }

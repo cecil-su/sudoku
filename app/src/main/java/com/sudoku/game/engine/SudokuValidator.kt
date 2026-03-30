@@ -47,15 +47,17 @@ object SudokuValidator {
     }
 
     /**
-     * Checks if the board is completely and correctly filled.
+     * Checks if the board is completely and correctly filled (single pass).
      */
     fun isComplete(cells: List<List<Cell>>): Boolean {
         for (r in 0 until 9) {
             for (c in 0 until 9) {
-                if (cells[r][c].isEmpty) return false
+                val cell = cells[r][c]
+                if (cell.isEmpty) return false
+                if (hasConflict(cells, r, c)) return false
             }
         }
-        return findConflicts(cells).isEmpty()
+        return true
     }
 
     /**
