@@ -3,12 +3,13 @@ package com.sudoku.game.engine
 import com.sudoku.game.model.Cell
 import com.sudoku.game.model.Difficulty
 import com.sudoku.game.model.GameState
-import kotlin.random.Random
 
 object SudokuGenerator {
 
     /**
      * Generates a new game with the given difficulty.
+     * Uses LogicSolver to ensure the puzzle is solvable with techniques
+     * at or below the difficulty's maximum technique level.
      */
     fun generate(difficulty: Difficulty): GameState {
         val solution = generateFullBoard()
@@ -16,35 +17,19 @@ object SudokuGenerator {
         val cells = List(9) { row ->
             List(9) { col ->
                 val value = puzzle[row][col]
-                Cell(
-                    row = row,
-                    col = col,
-                    value = value,
-                    isGiven = value != 0
-                )
+                Cell(row = row, col = col, value = value, isGiven = value != 0)
             }
         }
-        val solutionList = solution.map { it.toList() }
         return GameState(
             cells = cells,
-            solution = solutionList,
+            solution = solution.map { it.toList() },
             difficulty = difficulty
         )
     }
 
-    /**
-     * Generates a complete valid 9x9 board.
-     * Strategy: fill diagonal boxes first (independent), then solve the rest.
-     */
     private fun generateFullBoard(): Array<IntArray> {
         val board = Array(9) { IntArray(9) }
-
-        // Fill three diagonal 3x3 boxes (they don't affect each other)
-        for (box in 0 until 3) {
-            fillBox(board, box * 3, box * 3)
-        }
-
-        // Solve the rest using backtracking
+        for (box in 0 until 3) fillBox(board, box * 3, box * 3)
         solveRandom(board)
         return board
     }
@@ -62,9 +47,7 @@ object SudokuGenerator {
     private fun solveRandom(board: Array<IntArray>): Boolean {
         val empty = findEmpty(board) ?: return true
         val (row, col) = empty
-        val numbers = (1..9).shuffled()
-
-        for (num in numbers) {
+        for (num in (1..9).shuffled()) {
             if (SudokuSolver.isValid(board, row, col, num)) {
                 board[row][col] = num
                 if (solveRandom(board)) return true
@@ -75,20 +58,21 @@ object SudokuGenerator {
     }
 
     /**
-     * Creates a puzzle by removing cells from the complete board.
-     * Uses a fast approach: try to solve with one cell removed and a different
-     * value in that cell. If it fails, the original value is forced (unique).
+     * Creates a puzzle by removing cells from the solution.
+     * After each removal, verifies the puzzle is still solvable
+     * using only techniques within the difficulty's allowed level.
+     * Logic solvability guarantees unique solution (no guessing needed).
      */
     private fun createPuzzle(solution: Array<IntArray>, difficulty: Difficulty): Array<IntArray> {
         val puzzle = Array(9) { solution[it].copyOf() }
-        val target = Random.nextInt(difficulty.cluesToRemove.first, difficulty.cluesToRemove.last + 1)
-
-        // Shuffle positions for randomness
         val positions = (0 until 81).shuffled()
+        val maxLevel = difficulty.maxTechniqueLevel
+        val maxRemovals = difficulty.targetRemovals.last
 
         var removed = 0
         for (pos in positions) {
-            if (removed >= target) break
+            if (removed >= maxRemovals) break
+
             val row = pos / 9
             val col = pos % 9
             if (puzzle[row][col] == 0) continue
@@ -96,44 +80,21 @@ object SudokuGenerator {
             val backup = puzzle[row][col]
             puzzle[row][col] = 0
 
-            // Fast unique check: try every other value in this cell.
-            // If none leads to a valid complete board, the solution is unique.
-            if (hasUniqueSolution(puzzle, row, col, backup)) {
+            val result = LogicSolver.analyzeWithCap(puzzle, maxLevel)
+            if (result.solved) {
                 removed++
             } else {
                 puzzle[row][col] = backup
             }
         }
 
+        // If we didn't reach minimum removals, the puzzle is still valid
+        // but may be easier than intended. This is rare for lower difficulties.
         return puzzle
     }
 
-    /**
-     * Checks if the puzzle has a unique solution by testing if any value
-     * other than [correctValue] at [row],[col] can produce a valid solution.
-     * This is much faster than full countSolutions for incremental removal.
-     */
-    private fun hasUniqueSolution(puzzle: Array<IntArray>, row: Int, col: Int, correctValue: Int): Boolean {
-        for (num in 1..9) {
-            if (num == correctValue) continue
-            if (!SudokuSolver.isValid(puzzle, row, col, num)) continue
-
-            puzzle[row][col] = num
-            val copy = Array(9) { puzzle[it].copyOf() }
-            val solvable = SudokuSolver.solve(copy)
-            puzzle[row][col] = 0
-
-            if (solvable) return false // Another solution exists
-        }
-        return true // Only the correct value works
-    }
-
     private fun findEmpty(board: Array<IntArray>): Pair<Int, Int>? {
-        for (r in 0 until 9) {
-            for (c in 0 until 9) {
-                if (board[r][c] == 0) return Pair(r, c)
-            }
-        }
+        for (r in 0 until 9) for (c in 0 until 9) if (board[r][c] == 0) return Pair(r, c)
         return null
     }
 }
