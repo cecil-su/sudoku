@@ -1,5 +1,11 @@
 package com.sudoku.game.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,17 +14,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -38,7 +51,6 @@ fun GameScreen(
     val numberCounts by viewModel.numberCounts.collectAsState()
     val isDarkTheme = isSystemInDarkTheme()
 
-    // Pause/resume timer with lifecycle
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -91,7 +103,13 @@ fun GameScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             if (state.isCompleted) {
-                CompletionBanner(elapsedSeconds = state.elapsedSeconds)
+                CompletionBanner(
+                    elapsedSeconds = state.elapsedSeconds,
+                    onBackToMenu = {
+                        viewModel.exitGame()
+                        onBack()
+                    }
+                )
             } else {
                 NumberPad(
                     onNumberClick = { viewModel.inputNumber(it) },
@@ -111,17 +129,44 @@ fun GameScreen(
 }
 
 @Composable
-private fun CompletionBanner(elapsedSeconds: Long) {
+private fun CompletionBanner(
+    elapsedSeconds: Long,
+    onBackToMenu: () -> Unit
+) {
+    val scale = remember { Animatable(0.3f) }
+    val alpha = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        alpha.animateTo(1f, animationSpec = tween(400))
+    }
+    LaunchedEffect(Unit) {
+        scale.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(500, easing = FastOutSlowInEasing)
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .scale(scale.value)
+                .alpha(alpha.value)
+        ) {
+            Text(
+                text = "🎉",
+                fontSize = 64.sp
+            )
+            Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = "恭喜完成！",
                 style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -129,8 +174,13 @@ private fun CompletionBanner(elapsedSeconds: Long) {
             val secs = elapsedSeconds % 60
             Text(
                 text = "用时 %02d:%02d".format(mins, secs),
-                style = MaterialTheme.typography.titleLarge
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(modifier = Modifier.height(32.dp))
+            Button(onClick = onBackToMenu) {
+                Text("返回主页", fontSize = 16.sp)
+            }
         }
     }
 }

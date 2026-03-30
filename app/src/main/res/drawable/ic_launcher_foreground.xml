@@ -4,33 +4,96 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 3x3 grid representing sudoku -->
+
     <group
         android:translateX="27"
         android:translateY="27">
+
         <!-- Outer border -->
         <path
             android:pathData="M0,0 L54,0 L54,54 L0,54 Z"
             android:strokeWidth="3"
             android:strokeColor="#FFFFFF"
             android:fillColor="#00000000"/>
-        <!-- Vertical lines -->
+
+        <!-- Thick vertical lines (box separators) -->
         <path
             android:pathData="M18,0 L18,54"
-            android:strokeWidth="1.5"
+            android:strokeWidth="2.5"
             android:strokeColor="#FFFFFF"/>
         <path
             android:pathData="M36,0 L36,54"
-            android:strokeWidth="1.5"
+            android:strokeWidth="2.5"
             android:strokeColor="#FFFFFF"/>
-        <!-- Horizontal lines -->
+
+        <!-- Thick horizontal lines (box separators) -->
         <path
             android:pathData="M0,18 L54,18"
-            android:strokeWidth="1.5"
+            android:strokeWidth="2.5"
             android:strokeColor="#FFFFFF"/>
         <path
             android:pathData="M0,36 L54,36"
-            android:strokeWidth="1.5"
+            android:strokeWidth="2.5"
             android:strokeColor="#FFFFFF"/>
+
+        <!-- Thin vertical lines (cell separators) -->
+        <path
+            android:pathData="M6,0 L6,54"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+        <path
+            android:pathData="M12,0 L12,54"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+        <path
+            android:pathData="M24,0 L24,54"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+        <path
+            android:pathData="M30,0 L30,54"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+        <path
+            android:pathData="M42,0 L42,54"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+        <path
+            android:pathData="M48,0 L48,54"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+
+        <!-- Thin horizontal lines (cell separators) -->
+        <path
+            android:pathData="M0,6 L54,6"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+        <path
+            android:pathData="M0,12 L54,12"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+        <path
+            android:pathData="M0,24 L54,24"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+        <path
+            android:pathData="M0,30 L54,30"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+        <path
+            android:pathData="M0,42 L54,42"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+        <path
+            android:pathData="M0,48 L54,48"
+            android:strokeWidth="0.5"
+            android:strokeColor="#99FFFFFF"/>
+
+        <!-- Number "9" in center cell - iconic sudoku symbol -->
+        <path
+            android:pathData="M25.5,23.5 Q25.5,20.5 27,20.5 Q28.5,20.5 28.5,23.5 Q28.5,26 27,26 Q25.5,26 25.5,23.5 Z M28.5,24 L28.5,33"
+            android:strokeWidth="1.5"
+            android:strokeColor="#FFFFFF"
+            android:fillColor="#00000000"/>
+
     </group>
 </vector>
