@@ -89,7 +89,7 @@ private fun NumberButton(
     Button(
         onClick = onClick,
         enabled = !isComplete,
-        modifier = Modifier.size(48.dp),
+        modifier = Modifier.size(36.dp),
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (isNoteMode)
@@ -108,14 +108,14 @@ private fun NumberButton(
         Box(modifier = Modifier.fillMaxSize()) {
             Text(
                 text = number.toString(),
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.Center)
             )
             if (remaining in 1..8) {
                 Text(
                     text = remaining.toString(),
-                    fontSize = 9.sp,
+                    fontSize = 8.sp,
                     fontWeight = FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
