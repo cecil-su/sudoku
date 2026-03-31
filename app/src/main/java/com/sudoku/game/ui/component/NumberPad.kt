@@ -119,8 +119,8 @@ private fun NumberButton(
                     fontWeight = FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 1.dp, end = 1.dp)
+                        .align(Alignment.TopStart)
+                        .padding(top = 1.dp, start = 1.dp)
                 )
             }
         }
