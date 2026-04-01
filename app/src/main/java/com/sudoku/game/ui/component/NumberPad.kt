@@ -2,6 +2,7 @@ package com.sudoku.game.ui.component
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -86,43 +87,44 @@ private fun NumberButton(
     isNoteMode: Boolean,
     remaining: Int
 ) {
-    Button(
-        onClick = onClick,
-        enabled = !isComplete,
-        modifier = Modifier.size(36.dp),
-        shape = RoundedCornerShape(8.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (isNoteMode)
-                MaterialTheme.colorScheme.secondaryContainer
-            else
-                MaterialTheme.colorScheme.primaryContainer,
-            contentColor = if (isNoteMode)
-                MaterialTheme.colorScheme.onSecondaryContainer
-            else
-                MaterialTheme.colorScheme.onPrimaryContainer,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-        ),
-        contentPadding = ButtonDefaults.TextButtonContentPadding
+    Box(
+        contentAlignment = Alignment.Center
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Button(
+            onClick = onClick,
+            enabled = !isComplete,
+            modifier = Modifier.size(36.dp),
+            shape = RoundedCornerShape(8.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isNoteMode)
+                    MaterialTheme.colorScheme.secondaryContainer
+                else
+                    MaterialTheme.colorScheme.primaryContainer,
+                contentColor = if (isNoteMode)
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                else
+                    MaterialTheme.colorScheme.onPrimaryContainer,
+                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+            ),
+            contentPadding = PaddingValues(0.dp)
+        ) {
             Text(
                 text = number.toString(),
                 fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.Center)
+                fontWeight = FontWeight.Bold
             )
-            if (remaining in 1..8) {
-                Text(
-                    text = remaining.toString(),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(top = 1.dp, start = 1.dp)
-                )
-            }
+        }
+        if (remaining in 1..8) {
+            Text(
+                text = remaining.toString(),
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 0.dp, start = 1.dp)
+            )
         }
     }
 }
