@@ -80,6 +80,18 @@
 - [x] Release 签名配置（keystore + GitHub Secrets）
 - **状态：** complete
 
+### 阶段 9：教学式提示系统（v1.9.0）
+- [x] `LogicSolver` 新增只读 `findHint(board)`：按技巧优先级返回"下一步"（技巧名 + 中文讲解 + 高亮格 + 可填落子）
+- [x] 覆盖 1-6 级技巧 → 对任意"无错误"的局面必有下一步（与生成器难度上限一致）
+- [x] **不触碰** `analyze`/`analyzeWithCap`/生成器（生成热路径零风险）
+- [x] `GameViewModel`：提示由"抄答案"改为"先查错→求逻辑下一步→展示讲解"；新增 `applyHint`/`dismissHint`；任何棋盘/选择变化清除过期提示
+- [x] `SudokuBoard` 支持 `hintCells` 琥珀色描边高亮
+- [x] `GameScreen` 数字面板上方渲染讲解卡片（填入 / 知道了）
+- [x] 单元测试：逐步解谜 + 落子恒等唯一解 + 生成谜题必有提示
+- [x] 质量清理（/simplify）：抽出共享 `commitValue`、合并 `useHint` 分支、`boxCells` 表达式化
+- [x] 正确性复审 + 测试加强：4 个高级检测器改 `internal`，手搓候选位图直测（区块排除/显性数对/隐性数对/X-Wing），`LogicSolverTest` 11 测试全过
+- **状态：** complete
+
 ## 关键问题
 1. ~~使用 Jetpack Compose 还是传统 XML 布局？~~ → **Jetpack Compose**
 2. ~~是否需要在线功能？~~ → **不需要，纯离线单机**

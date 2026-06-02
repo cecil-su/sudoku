@@ -4,18 +4,25 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +40,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sudoku.game.model.GameState
+import com.sudoku.game.model.Hint
 import com.sudoku.game.ui.component.GameTopBar
 import com.sudoku.game.ui.component.NumberPad
 import com.sudoku.game.ui.component.SudokuBoard
@@ -49,6 +57,7 @@ fun GameScreen(
     val numberCounts by viewModel.numberCounts.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
+    val activeHint by viewModel.activeHint.collectAsState()
     val isDarkTheme = isSystemInDarkTheme()
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -97,7 +106,8 @@ fun GameScreen(
             SudokuBoard(
                 gameState = state,
                 onCellClick = { row, col -> viewModel.selectCell(row, col) },
-                isDarkTheme = isDarkTheme
+                isDarkTheme = isDarkTheme,
+                hintCells = activeHint?.highlightCells?.toSet() ?: emptySet()
             )
 
             Spacer(modifier = Modifier.weight(1f))
@@ -111,6 +121,13 @@ fun GameScreen(
                     }
                 )
             } else {
+                activeHint?.let { hint ->
+                    HintCard(
+                        hint = hint,
+                        onApply = { viewModel.applyHint() },
+                        onDismiss = { viewModel.dismissHint() }
+                    )
+                }
                 NumberPad(
                     onNumberClick = { viewModel.inputNumber(it) },
                     onClear = { viewModel.clearCell() },
@@ -125,6 +142,48 @@ fun GameScreen(
                     canRedo = canRedo,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 16.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HintCard(
+    hint: Hint,
+    onApply: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = 2.dp
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = hint.techniqueName,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = hint.explanation,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss) { Text("知道了") }
+                if (hint.placement != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(onClick = onApply) { Text("填入") }
+                }
             }
         }
     }

@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
@@ -31,7 +32,8 @@ fun SudokuBoard(
     gameState: GameState,
     onCellClick: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
-    isDarkTheme: Boolean = false
+    isDarkTheme: Boolean = false,
+    hintCells: Set<Pair<Int, Int>> = emptySet()
 ) {
     val textMeasurer = rememberTextMeasurer()
     val currentOnCellClick = rememberUpdatedState(onCellClick)
@@ -57,7 +59,7 @@ fun SudokuBoard(
         val cellSize = size.width / 9f
 
         drawRect(bgColor)
-        drawCellBackgrounds(gameState, cellSize, isDarkTheme)
+        drawCellBackgrounds(gameState, cellSize, isDarkTheme, hintCells)
         drawNumbers(gameState, cellSize, textMeasurer, isDarkTheme)
         drawGridLines(cellSize, gridColor, thinLineColor)
     }
@@ -66,12 +68,14 @@ fun SudokuBoard(
 private fun DrawScope.drawCellBackgrounds(
     gameState: GameState,
     cellSize: Float,
-    isDarkTheme: Boolean
+    isDarkTheme: Boolean,
+    hintCells: Set<Pair<Int, Int>>
 ) {
     val selectedBg = if (isDarkTheme) SelectedCellDark else SelectedCell
     val peerBg = if (isDarkTheme) HighlightRowColBoxDark else HighlightRowColBox
     val sameNumBg = if (isDarkTheme) HighlightSameNumberDark else HighlightSameNumber
     val errorBg = if (isDarkTheme) ErrorCellBgDark else ErrorCellBg
+    val hintColor = if (isDarkTheme) HintHighlightDark else HintHighlight
 
     for (r in 0 until 9) {
         for (c in 0 until 9) {
@@ -84,6 +88,16 @@ private fun DrawScope.drawCellBackgrounds(
                 cell.isError -> drawRect(errorBg, topLeft, cellSizeObj)
                 gameState.isSameValue(r, c) -> drawRect(sameNumBg, topLeft, cellSizeObj)
                 gameState.isSameRowColBox(r, c) -> drawRect(peerBg, topLeft, cellSizeObj)
+            }
+
+            if ((r to c) in hintCells) {
+                val inset = 2f
+                drawRect(
+                    color = hintColor,
+                    topLeft = Offset(c * cellSize + inset, r * cellSize + inset),
+                    size = Size(cellSize - 2 * inset, cellSize - 2 * inset),
+                    style = Stroke(width = 3f)
+                )
             }
         }
     }

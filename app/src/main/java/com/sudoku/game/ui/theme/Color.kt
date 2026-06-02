@@ -21,6 +21,7 @@ val SelectedCell = Color(0xFF90CAF9)
 val ErrorCellBg = Color(0xFFFFCDD2)
 val GridColorLight = Color(0xFF37474F)
 val ThinLineColorLight = Color(0xFFB0BEC5)
+val HintHighlight = Color(0xFFFFA000)
 
 // Game-specific colors — Dark
 val PresetNumberColorDark = Color(0xFFE0E0E0)
@@ -33,3 +34,4 @@ val ErrorCellBgDark = Color(0xFF4A1A1A)
 val BoardBgDark = Color(0xFF1A1A2E)
 val GridColorDark = Color(0xFF90A4AE)
 val ThinLineColorDark = Color(0xFF546E7A)
+val HintHighlightDark = Color(0xFFFFB74D)

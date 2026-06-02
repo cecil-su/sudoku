@@ -5,11 +5,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.sudoku.game.data.GameRepository
 import com.sudoku.game.data.StatsRepository
+import com.sudoku.game.engine.LogicSolver
 import com.sudoku.game.engine.SudokuGenerator
 import com.sudoku.game.engine.SudokuValidator
 import com.sudoku.game.model.Cell
 import com.sudoku.game.model.Difficulty
 import com.sudoku.game.model.GameState
+import com.sudoku.game.model.Hint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -50,6 +52,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _canRedo = MutableStateFlow(false)
     val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
 
+    private val _activeHint = MutableStateFlow<Hint?>(null)
+    val activeHint: StateFlow<Hint?> = _activeHint.asStateFlow()
+
     val stats = statsRepo.getStats()
         .stateIn(viewModelScope, SharingStarted.Eagerly, com.sudoku.game.model.GameStats())
 
@@ -68,6 +73,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun newGame(difficulty: Difficulty) {
         stopAllJobs()
+        _activeHint.value = null
         viewModelScope.launch {
             stateMutex.withLock {
                 undoStack.clear()
@@ -89,6 +95,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun continueGame() {
+        _activeHint.value = null
         viewModelScope.launch {
             val saved = gameRepo.loadGame()
             if (saved != null && !saved.isCompleted) {
@@ -124,11 +131,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectCell(row: Int, col: Int) {
         if (row !in 0..8 || col !in 0..8) return
+        _activeHint.value = null
         _state.value = _state.value?.copy(selectedRow = row, selectedCol = col)
     }
 
     fun inputNumber(number: Int) {
         if (number !in 1..9) return
+        _activeHint.value = null
         viewModelScope.launch {
             stateMutex.withLock {
                 val current = _state.value ?: return@withLock
@@ -149,11 +158,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun applyValue(current: GameState, row: Int, col: Int, number: Int): GameState {
-        val newCells = current.cells.map { it.toMutableList() }.toMutableList()
-        val cell = newCells[row][col]
-        val oldValue = cell.value
+        val oldValue = current.getCell(row, col).value
         val newValue = if (oldValue == number) 0 else number
-        newCells[row][col] = cell.copy(value = newValue, notes = emptySet())
+        return commitValue(current, row, col, oldValue, newValue)
+    }
+
+    /**
+     * Writes [newValue] into ([row], [col]) (0 clears it), clears peer notes, then
+     * recomputes errors, completion and number counts. Shared by manual input and
+     * hint fills — it does not toggle and does not change the selection.
+     */
+    private fun commitValue(current: GameState, row: Int, col: Int, oldValue: Int, newValue: Int): GameState {
+        val newCells = current.cells.map { it.toMutableList() }.toMutableList()
+        newCells[row][col] = newCells[row][col].copy(value = newValue, notes = emptySet())
 
         if (newValue != 0) {
             removeNotesFromPeers(newCells, row, col, newValue)
@@ -168,9 +185,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             onGameCompleted(current.difficulty, _elapsedSeconds.value)
         }
 
-        val newState = current.copy(cells = cellsList, isCompleted = isCompleted)
         updateNumberCountsIncremental(oldValue, newValue)
-        return newState
+        return current.copy(cells = cellsList, isCompleted = isCompleted)
     }
 
     private fun applyNote(current: GameState, row: Int, col: Int, number: Int): GameState {
@@ -184,6 +200,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearCell() {
+        _activeHint.value = null
         viewModelScope.launch {
             stateMutex.withLock {
                 val current = _state.value ?: return@withLock
@@ -208,6 +225,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun undo() {
+        _activeHint.value = null
         viewModelScope.launch {
             stateMutex.withLock {
                 if (undoStack.isEmpty()) return@withLock
@@ -224,6 +242,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun redo() {
+        _activeHint.value = null
         viewModelScope.launch {
             stateMutex.withLock {
                 if (redoStack.isEmpty()) return@withLock
@@ -244,62 +263,75 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             stateMutex.withLock {
                 val current = _state.value ?: return@withLock
                 if (current.isCompleted) return@withLock
+                if (_activeHint.value != null) return@withLock
+
+                // Point out a wrong entry first — it derails any further reasoning. Free.
+                val wrong = findWrongCell(current)
+                if (wrong != null) {
+                    _state.value = current.copy(selectedRow = wrong.first, selectedCol = wrong.second)
+                    _activeHint.value = Hint(
+                        "发现错误",
+                        "第${wrong.first + 1}行第${wrong.second + 1}列填错了，照它推理走不下去。先清除这一格再继续。",
+                        listOf(wrong),
+                        null
+                    )
+                    return@withLock
+                }
+
                 if (current.hintsUsed >= GameState.MAX_HINTS) return@withLock
 
-                // Prioritize selected cell
-                val targetRow: Int
-                val targetCol: Int
-                if (current.hasSelection) {
-                    val sel = current.getCell(current.selectedRow, current.selectedCol)
-                    if (!sel.isGiven && (sel.value == 0 || sel.value != current.solution[current.selectedRow][current.selectedCol])) {
-                        targetRow = current.selectedRow
-                        targetCol = current.selectedCol
-                    } else {
-                        val found = findHintTarget(current) ?: return@withLock
-                        targetRow = found.first
-                        targetCol = found.second
-                    }
-                } else {
-                    val found = findHintTarget(current) ?: return@withLock
-                    targetRow = found.first
-                    targetCol = found.second
+                val board = Array(9) { r -> IntArray(9) { c -> current.cells[r][c].value } }
+                val hint = LogicSolver.findHint(board)
+                if (hint == null) {
+                    _activeHint.value = Hint(
+                        "继续观察",
+                        "暂时没有可一步推出的格子，试试标记候选数，从候选最少的区域入手。",
+                        emptyList(),
+                        null
+                    )
+                    return@withLock
                 }
 
-                pushUndo(current.cells)
-
-                val cell = current.getCell(targetRow, targetCol)
-                val oldValue = cell.value
-                val correctValue = current.solution[targetRow][targetCol]
-                val newCells = current.cells.map { it.toMutableList() }.toMutableList()
-                newCells[targetRow][targetCol] = cell.copy(
-                    value = correctValue, notes = emptySet(), isError = false
-                )
-                removeNotesFromPeers(newCells, targetRow, targetCol, correctValue)
-                val updatedCells = updateErrors(newCells)
-                val cellsList = updatedCells.map { it.toList() }
-                val isCompleted = SudokuValidator.isComplete(cellsList)
-                if (isCompleted) {
-                    timerJob?.cancel()
-                    onGameCompleted(current.difficulty, _elapsedSeconds.value)
-                }
+                val placement = hint.placement
                 _state.value = current.copy(
-                    cells = cellsList,
-                    selectedRow = targetRow,
-                    selectedCol = targetCol,
-                    hintsUsed = current.hintsUsed + 1,
-                    isCompleted = isCompleted
+                    selectedRow = placement?.row ?: current.selectedRow,
+                    selectedCol = placement?.col ?: current.selectedCol,
+                    hintsUsed = current.hintsUsed + 1
                 )
-                updateNumberCountsIncremental(oldValue, correctValue)
+                _activeHint.value = hint
             }
         }
     }
 
-    private fun findHintTarget(state: GameState): Pair<Int, Int>? {
+    /** Fills in the placement of the currently shown hint, if it has one. */
+    fun applyHint() {
+        viewModelScope.launch {
+            stateMutex.withLock {
+                val placement = _activeHint.value?.placement
+                _activeHint.value = null
+                if (placement == null) return@withLock
+                val current = _state.value ?: return@withLock
+                if (current.isCompleted) return@withLock
+                val cell = current.getCell(placement.row, placement.col)
+                if (cell.isGiven) return@withLock
+
+                pushUndo(current.cells)
+                _state.value = commitValue(current, placement.row, placement.col, cell.value, placement.value)
+                    .copy(selectedRow = placement.row, selectedCol = placement.col)
+            }
+        }
+    }
+
+    fun dismissHint() {
+        _activeHint.value = null
+    }
+
+    private fun findWrongCell(state: GameState): Pair<Int, Int>? {
         for (r in 0 until 9) {
             for (c in 0 until 9) {
                 val cell = state.cells[r][c]
-                if (!cell.isGiven && (cell.value == 0 || cell.value != state.solution[r][c])) {
-                    return Pair(r, c)
+                if (!cell.isGiven && cell.value != 0 && cell.value != state.solution[r][c]) {
+                    return r to c
                 }
             }
         }
