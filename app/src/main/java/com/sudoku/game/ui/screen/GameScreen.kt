@@ -39,8 +39,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.sudoku.game.model.DemoController
 import com.sudoku.game.model.GameState
 import com.sudoku.game.model.Hint
+import com.sudoku.game.ui.component.DemoHighlight
+import com.sudoku.game.ui.component.DemoPlayer
 import com.sudoku.game.ui.component.GameTopBar
 import com.sudoku.game.ui.component.NumberPad
 import com.sudoku.game.ui.component.SudokuBoard
@@ -58,6 +61,8 @@ fun GameScreen(
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
     val activeHint by viewModel.activeHint.collectAsState()
+    val demo by viewModel.demo.collectAsState()
+    val demoChallenge by viewModel.demoChallenge.collectAsState()
     val isDarkTheme = isSystemInDarkTheme()
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -92,59 +97,122 @@ fun GameScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            val activeDemo = demo
+            val demoStep = activeDemo?.current
+
             GameTopBar(
                 difficultyLabel = state.difficulty.label,
                 elapsedSeconds = elapsedSeconds,
                 onBack = {
                     viewModel.exitGame()
                     onBack()
-                }
+                },
+                onDemo = if (!state.isCompleted && activeDemo == null) {
+                    { viewModel.startDemo() }
+                } else null
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            SudokuBoard(
-                gameState = state,
-                onCellClick = { row, col -> viewModel.selectCell(row, col) },
-                isDarkTheme = isDarkTheme,
-                hintCells = activeHint?.highlightCells?.toSet() ?: emptySet()
-            )
+            if (activeDemo != null && demoStep != null) {
+                val challenge = demoChallenge
+                val awaiting = challenge != null && challenge.result == null
+                val blankCell = if (awaiting) challenge!!.row to challenge.col else null
+                val demoBoard = remember(state, activeDemo, demoChallenge) {
+                    buildDemoBoard(state, activeDemo, blankCell)
+                }
+                SudokuBoard(
+                    gameState = demoBoard,
+                    onCellClick = { _, _ -> },
+                    isDarkTheme = isDarkTheme,
+                    demoHighlight = DemoHighlight(step = demoStep, challengeCell = blankCell)
+                )
 
-            Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.weight(1f))
 
-            if (state.isCompleted) {
-                CompletionBanner(
-                    elapsedSeconds = elapsedSeconds,
-                    onBackToMenu = {
-                        viewModel.exitGame()
-                        onBack()
-                    }
+                DemoPlayer(
+                    controller = activeDemo,
+                    challenge = demoChallenge,
+                    onNext = { viewModel.demoNext() },
+                    onPrev = { viewModel.demoPrev() },
+                    onReplay = { viewModel.demoReplay() },
+                    onExit = { viewModel.exitDemo() },
+                    onTry = { viewModel.startChallenge() },
+                    onSubmit = { viewModel.submitChallenge(it) },
+                    onCancelChallenge = { viewModel.dismissChallenge() },
+                    modifier = Modifier.padding(bottom = 16.dp)
                 )
             } else {
-                activeHint?.let { hint ->
-                    HintCard(
-                        hint = hint,
-                        onApply = { viewModel.applyHint() },
-                        onDismiss = { viewModel.dismissHint() }
+                SudokuBoard(
+                    gameState = state,
+                    onCellClick = { row, col -> viewModel.selectCell(row, col) },
+                    isDarkTheme = isDarkTheme,
+                    hintCells = activeHint?.highlightCells?.toSet() ?: emptySet()
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                if (state.isCompleted) {
+                    CompletionBanner(
+                        elapsedSeconds = elapsedSeconds,
+                        onBackToMenu = {
+                            viewModel.exitGame()
+                            onBack()
+                        }
+                    )
+                } else {
+                    activeHint?.let { hint ->
+                        HintCard(
+                            hint = hint,
+                            onApply = { viewModel.applyHint() },
+                            onDismiss = { viewModel.dismissHint() }
+                        )
+                    }
+                    NumberPad(
+                        onNumberClick = { viewModel.inputNumber(it) },
+                        onClear = { viewModel.clearCell() },
+                        onUndo = { viewModel.undo() },
+                        onRedo = { viewModel.redo() },
+                        onNoteToggle = { viewModel.toggleNoteMode() },
+                        onHint = { viewModel.useHint() },
+                        isNoteMode = state.isNoteMode,
+                        numberCounts = numberCounts,
+                        hintsRemaining = GameState.MAX_HINTS - state.hintsUsed,
+                        canUndo = canUndo,
+                        canRedo = canRedo,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 16.dp)
                     )
                 }
-                NumberPad(
-                    onNumberClick = { viewModel.inputNumber(it) },
-                    onClear = { viewModel.clearCell() },
-                    onUndo = { viewModel.undo() },
-                    onRedo = { viewModel.redo() },
-                    onNoteToggle = { viewModel.toggleNoteMode() },
-                    onHint = { viewModel.useHint() },
-                    isNoteMode = state.isNoteMode,
-                    numberCounts = numberCounts,
-                    hintsRemaining = GameState.MAX_HINTS - state.hintsUsed,
-                    canUndo = canUndo,
-                    canRedo = canRedo,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 16.dp)
-                )
             }
         }
     }
+}
+
+/**
+ * Builds the read-only board shown during a demo: the original puzzle with every
+ * placement up to and including the current step applied (so cells fill as you
+ * step forward, empty as you step back). Notes/errors are cleared for focus. When
+ * [blankCell] is set (a "your turn" challenge), that cell is left empty to guess.
+ * This is derived for display only — it never touches the real [GameState].
+ */
+private fun buildDemoBoard(
+    state: GameState,
+    controller: DemoController,
+    blankCell: Pair<Int, Int>?
+): GameState {
+    val cells = state.cells.map { row ->
+        row.map { it.copy(notes = emptySet(), isError = false) }.toMutableList()
+    }.toMutableList()
+    for (i in 0..controller.currentIndex) {
+        val p = controller.steps[i].placement ?: continue
+        cells[p.row][p.col] = cells[p.row][p.col].copy(value = p.value, isGiven = false)
+    }
+    blankCell?.let { (r, c) -> cells[r][c] = cells[r][c].copy(value = 0) }
+    return state.copy(
+        cells = cells.map { it.toList() },
+        selectedRow = -1,
+        selectedCol = -1
+    )
 }
 
 @Composable

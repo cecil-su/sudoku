@@ -35,3 +35,17 @@ val BoardBgDark = Color(0xFF1A1A2E)
 val GridColorDark = Color(0xFF90A4AE)
 val ThinLineColorDark = Color(0xFF546E7A)
 val HintHighlightDark = Color(0xFFFFB74D)
+
+// Demo player phased highlights — Light (look here / being eliminated / conclusion)
+val DemoLookBg = Color(0xFFFFE0B2)
+val DemoEliminateBg = Color(0xFFFFCCBC)
+val DemoConcludeBg = Color(0xFFC8E6C9)
+val DemoConcludeStroke = Color(0xFF2E7D32)
+val DemoStrikeColor = Color(0xFFBF360C)
+
+// Demo player phased highlights — Dark
+val DemoLookBgDark = Color(0xFF4A3B1A)
+val DemoEliminateBgDark = Color(0xFF4A2A1A)
+val DemoConcludeBgDark = Color(0xFF1B3A2A)
+val DemoConcludeStrokeDark = Color(0xFF66BB6A)
+val DemoStrikeColorDark = Color(0xFFFF8A65)

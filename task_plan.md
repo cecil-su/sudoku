@@ -4,7 +4,7 @@
 开发一个功能完整、体验流畅的 Android 数独游戏，支持多难度级别、笔记标记、提示、计时等核心功能。
 
 ## 当前阶段
-全部完成
+阶段 10 进行中：**10.1 演示引擎 + 10.2 演示播放器 UI 已完成**（2026-06-02）。10.1：三方检测统一到 `stepForward` 共享内核 + `DemoStep.eliminatedCells` + `demoTrajectory`（修复链式断点）。10.2：离线演示播放器（`DemoController` 纯状态机 + 棋盘分阶段高亮叠加层 + 字幕/播放控制 + 默认静音 TTS + 「轮到你」复现校验 + 会话埋点起步）；47 单测全过 + `assembleDebug` 出 APK。**下一步：10.3 多 Provider 设置后台**。范围维持原决策（完整版多 provider + 本期上语音）。v1.x 主体（阶段 1-9）已全部完成。
 
 ## 各阶段
 
@@ -92,6 +92,59 @@
 - [x] 正确性复审 + 测试加强：4 个高级检测器改 `internal`，手搓候选位图直测（区块排除/显性数对/隐性数对/X-Wing），`LogicSolverTest` 11 测试全过
 - **状态：** complete
 
+### 阶段 10：AI 语音教练 —— "演示 + 讲解"模式（规划中）
+
+> **设计定调（2026-06-02 讨论确定，详见 findings 同日"AI 语音教练"条目）：**
+> - **核心体验**：把 findings 早期设想的"提示第 3 级（动画演示推理过程）"做成主体验——棋盘上**分步高亮 + 旁白讲解的"带旁白走查"**，不是聊天框。
+> - **分层**：确定性演示骨架先行（离线可跑），DeepSeek 作"第二控制器"后插，**骨架零返工**。
+> - **控制**：离线 = 按钮；有 AI = 按钮常驻 + 可对话（function calling 驱动同一个 `DemoController`）。
+> - **grounding**：演示时间线由引擎生成，LLM 只在轨迹上导航/讲解，不自行解题。
+
+> **评审加固（2026-06-02 · 第三会话，4-agent 评审）：** 范围**维持原决策**（完整版多 provider、本期上语音）；5 个 P0 修复已并入下方子阶段（标 `[评审P0]`）：① 引擎抽共享内核 + `DemoStep` 含被排除格；② AI 资源绑 onStop（非 viewModelScope）；③ "轮到你"复现校验；④ 会话埋点上移 P0；⑤ 首次全屏知情同意。评审提的 P1/P2 待办见 findings 同日条目。
+
+#### 10.1 演示引擎（确定性骨架 · 离线）
+- [x] **[评审P0]** 在 `LogicSolver` 内部抽出三方共享的"前进一步"内核 `stepForward(board, cands): DemoStep?`——`analyze`/`analyzeWithCap`（**公开签名/返回语义不变**，生成器依赖）、只读 `findHint`、新轨迹引擎三者**共用同一内核**。实现：六个检测器改为"只检测不变更"返回 `DemoStep?`，`applyStep` 统一推进状态；删掉旧的 6 个"检测即变更"突变函数 + `applyNextTechnique` + 6 个 `*Hint` 检测器（两套重复检测合一；`LogicSolver.kt` 661→487 行，净 −174，已含新增的 `eliminatedCells` 收集与 `stepForward`/`applyStep`/`demoTrajectory`），彻底消灭"第三套检测"
+- [x] **[评审P0]** `DemoStep` 含**被排除的格/候选** `eliminatedCells`：`DemoStep(level, 技巧名, lookCells, eliminatedCells, placement?, narration)`；检测器把内部 `any{}` 判定的消除目标真正收集成 `List<Elimination(row,col,values)>`（演示最关键的一帧）
+- [x] 轨迹**携带候选状态前进**：新增公开 `demoTrajectory(board): List<DemoStep>`，走 `stepForward`+`applyStep` 循环每步 emit 一个 `DemoStep` → 链式走查成立，**顺手修复 findings 记录的"链式断点"**（消除步解锁的 single 现在能被走到）。`findHint` 改为 `stepForward(...)?.toHint()`（保持 `Hint` 形状不变，UI 零改动；首步与轨迹首步天然一致）
+- **verify**：`LogicSolverTest` 现 14 测试全过（+34 全工程绿，含 4 个生成器测试证热路径不变；3 次随机重跑全绿）——① `demoTrajectory` 对 5 个难度均从当前局面走到合法终局（HARD/EXPERT 需消除解锁，证明状态前进/链式修复）；② 每步 看/排除/结论 自洽（单数=填入·level≤2 / 消除=擦候选·level≥3）；③ 同一谜题 `findHint` 首步 == 轨迹首步（证三方共用内核）；④ 4 个高级检测器直测 `eliminatedCells` 内容
+- **状态：** complete
+
+#### 10.2 演示播放器 UI（离线 · 按钮控制）
+- [x] `DemoController`（`model/DemoController.kt`，**不可变纯状态机**：steps[] / currentIndex；next/prev/replay/jumpTo/gotoCell 全部返回新实例）；VM 持 `_demo: StateFlow<DemoController?>`（沿用 `_activeHint` 隔离）
+- [x] `SudokuBoard` 扩展：新增 `demoHighlight: DemoHighlight?` 参数 → 分阶段多色高亮（看=琥珀 / 被排除=橙 / 结论=绿+描边）+ **被排除候选数带删除线**（`eliminatedCells` 那一帧）。**独立 `drawDemoBackgrounds` 分支**，不碰原 `drawCellBackgrounds` 的选中 `when{}`（阶段 9 高亮零改动）；演示态 `readOnly` 忽略点击
+- [x] 局内演示面板（`ui/component/DemoPlayer.kt`）：棋盘在上为主角（数字盘隐藏让位）+ 字幕条（技巧名 + 旁白 + `n/N` 步数）+ 播放控制（◀上一步 / 下一步▶ / ⟲重播 / ✕退出）；演示态棋盘只读。入口：顶栏「▶演示」图标（用户选）
+- [x] 逐步点击驱动；旁白用引擎模板串（`DemoStep.narration`）+ Android `TextToSpeech`（**默认静音**·`🔇/🔊` 可开，用户选）；TTS 绑 `DisposableEffect` 创建/`onDispose` shutdown + `ON_STOP` stop；中文引擎不可用则隐藏声音键回退字幕
+- [x] **[评审P0]"轮到你"复现校验**：落子步上「✋我来填」按钮（可选·按需，用户选；不打断纯走查）→ 藏结论、棋盘该格显「?」、字幕给 1-9 让玩家填；对→「答对了！」、错→即时讲技巧 + 揭晓答案（复用 `DemoStep.placement` 校验）。`DemoChallenge` 隔离在 VM
+- [x] **[评审P0]会话埋点起步**：`model/SessionTelemetry.kt`（不可变）记录 求助次数 / 错误 / 演示次数 / 复现对错 / **卡壳技巧**（techniqueHelpCounts）；VM 持 `_telemetry`，**只埋不展示、仅本地、不进 `GameState`、不外发**（沿用 `_activeHint` 隔离）。区域停留留作后续细化。10.4 追加 AI 事件、10.5 做复盘 UI
+- **verify**（量化）：✅ 编译 + `assembleDebug` 出 APK；47 单测全过（`DemoControllerTest` 7：空/单步/next/prev/replay/jumpTo 钳位/gotoCell；`SessionTelemetryTest` 5）。逻辑判据自洽：步数=`demoTrajectory` 长度（`下一步`走到 `isAtEnd`，终局 `buildDemoBoard` 全落子=解开）；每步高亮=`controller.current` 的 `DemoStep` 格；prev/replay 回 0；退出不污染（演示从不写 `_state`，棋盘为派生显示态）；静音+无网可走完 + 一次复现。**设备级手动点击待做**（无模拟器）
+- **状态：** complete
+
+#### 10.3 多 Provider 设置后台（完整版）
+- [ ] 数据模型：`providers[]`（id/name/baseURL/apiKey/models）+ activeProviderId + activeModel；存 DataStore（key 明文，BYOK）
+- [ ] 主页加设置入口（齿轮）；NavHost 加 `settings` / `provider_edit` 路由
+- [ ] Provider 列表（卡片 + FAB 添加 + 当前选中标记）→ 编辑页（名称 / baseURL / Key 遮罩 / 模型清单[预置 + 🔄刷新 `/models` + 手动] / 🔌测试连接）
+- [ ] 请求构造容忍推理模型差异（reasoner/o1 不吃 temperature）
+- **verify**：能增删改/切换 provider；测试连接通/不通有反馈；模型清单三种来源都可用
+- **状态：** pending
+
+#### 10.4 DeepSeek 接入 + 语音（增强层）
+- [ ] HTTP 客户端（OpenAI 兼容 `/chat/completions`，SSE 流式）；`INTERNET` 权限；引入 JSON 序列化
+- [ ] **第二控制器**：玩家语音意图经 DeepSeek **function calling** 映射到 `DemoController` 同一组函数（next/prev/replay/jumpTo/gotoCell/explainTechnique）
+- [ ] 语音 I/O：`RECORD_AUDIO` 运行时权限；`SpeechRecognizer`（中文）输入；TTS 念 DeepSeek 旁白；支持打断（barge-in）
+- [ ] system prompt 契约：耐心教练 + 盘面 + 引擎已验证轨迹 + 当前位置 + 可用工具；只能导航/讲解，禁止自行解题
+- [ ] 按钮常驻 + 可对话（不互斥）；未配 key / 断网自动回退到 10.2
+- [ ] **[评审P0]资源生命周期绑界面**：网络 / `SpeechRecognizer` / `TextToSpeech` / 在途请求一律绑 Activity/Composable 的 `onStop`/`onDestroy` 显式 `cancel()`/`stop()`/`shutdown()`——⚠️ **不可照搬计时器的 `viewModelScope`+`onCleared`（退后台不取消 → 后台仍录音 / 泄漏 / ANR）**
+- [ ] **[评审P0]首次启用全屏知情同意**：默认**关**；两级授权（① AI 旁白 = 只发盘面文本 / ② 语音输入 = 发麦克风转写）；明确"发往你配置的第三方服务商、非本 App 服务器"，点明 STT 音频可能经 Google
+- [ ] 追加 AI 使用事件到 10.2 的会话埋点（仍仅本地、不外发）
+- [ ] 横切：限流 + 每日上限、超时/错误降级
+- **verify**：配 key 后语音"下一步 / 为什么这格"能驱动同一演示；断网 / 未配 key / 中途超时三条路径下演示仍能完整走查（复用 10.2 判据）；麦克风在退到后台时确实停止
+- **状态：** pending
+
+#### 10.5 复盘 + 飞轮（P1 · 本期可不做）
+- [ ] ~~会话埋点~~ → **已上移到 10.2（P0）**，P0 期即开始攒数据，避免"数据断流"
+- [ ] 复盘全屏页（复用演示播放器回放整局 + 读取 10.2 埋点）+ 按弱项定向出题
+- **状态：** pending
+
 ## 关键问题
 1. ~~使用 Jetpack Compose 还是传统 XML 布局？~~ → **Jetpack Compose**
 2. ~~是否需要在线功能？~~ → **不需要，纯离线单机**
@@ -108,6 +161,10 @@
 | 纯离线单机 | 无需后端，降低复杂度 |
 | 暂无广告/内购 | 保持简洁，专注核心体验 |
 | GitHub Actions CI/CD | push 自动构建检查，打 tag 自动发 Release + APK |
+| AI 教练以"演示+讲解"为核心 | 把"提示第3级"做成主体验，直击差异化"真正学会数独" |
+| 确定性骨架 + AI 增强分层 | 离线可跑、grounding 天然成立、骨架零返工 |
+| 多 provider BYOK + 可配 baseURL | provider 无关、守住"无后端"基因、不堵代理路 |
+| 离线=按钮 / 有AI=按钮+对话 | 翻页按钮永远比语音快/省/稳；AI 赢在按钮表达不了的意图 |
 
 ## 遇到的错误
 | 错误 | 尝试次数 | 解决方案 |

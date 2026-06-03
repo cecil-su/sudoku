@@ -9,9 +9,12 @@ import com.sudoku.game.engine.LogicSolver
 import com.sudoku.game.engine.SudokuGenerator
 import com.sudoku.game.engine.SudokuValidator
 import com.sudoku.game.model.Cell
+import com.sudoku.game.model.DemoChallenge
+import com.sudoku.game.model.DemoController
 import com.sudoku.game.model.Difficulty
 import com.sudoku.game.model.GameState
 import com.sudoku.game.model.Hint
+import com.sudoku.game.model.SessionTelemetry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -55,6 +58,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeHint = MutableStateFlow<Hint?>(null)
     val activeHint: StateFlow<Hint?> = _activeHint.asStateFlow()
 
+    private val _demo = MutableStateFlow<DemoController?>(null)
+    val demo: StateFlow<DemoController?> = _demo.asStateFlow()
+
+    private val _demoChallenge = MutableStateFlow<DemoChallenge?>(null)
+    val demoChallenge: StateFlow<DemoChallenge?> = _demoChallenge.asStateFlow()
+
+    // Local-only learning telemetry — never serialized into GameState, never sent anywhere.
+    private val _telemetry = MutableStateFlow(SessionTelemetry())
+    val telemetry: StateFlow<SessionTelemetry> = _telemetry.asStateFlow()
+
     val stats = statsRepo.getStats()
         .stateIn(viewModelScope, SharingStarted.Eagerly, com.sudoku.game.model.GameStats())
 
@@ -74,6 +87,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun newGame(difficulty: Difficulty) {
         stopAllJobs()
         _activeHint.value = null
+        clearDemo()
+        _telemetry.value = SessionTelemetry()
         viewModelScope.launch {
             stateMutex.withLock {
                 undoStack.clear()
@@ -96,6 +111,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun continueGame() {
         _activeHint.value = null
+        clearDemo()
+        _telemetry.value = SessionTelemetry()
         viewModelScope.launch {
             val saved = gameRepo.loadGame()
             if (saved != null && !saved.isCompleted) {
@@ -118,6 +135,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val current = _state.value
         val elapsed = _elapsedSeconds.value
         stopAllJobs()
+        clearDemo()
         _state.value = null
         if (current != null && !current.isCompleted) {
             viewModelScope.launch(Dispatchers.IO) {
@@ -169,6 +187,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * hint fills — it does not toggle and does not change the selection.
      */
     private fun commitValue(current: GameState, row: Int, col: Int, oldValue: Int, newValue: Int): GameState {
+        if (newValue in 1..9 && newValue != current.solution[row][col]) {
+            _telemetry.value = _telemetry.value.recordError()
+        }
         val newCells = current.cells.map { it.toMutableList() }.toMutableList()
         newCells[row][col] = newCells[row][col].copy(value = newValue, notes = emptySet())
 
@@ -275,6 +296,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         listOf(wrong),
                         null
                     )
+                    _telemetry.value = _telemetry.value.recordHint(null)
                     return@withLock
                 }
 
@@ -289,6 +311,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         emptyList(),
                         null
                     )
+                    _telemetry.value = _telemetry.value.recordHint(null)
                     return@withLock
                 }
 
@@ -299,6 +322,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     hintsUsed = current.hintsUsed + 1
                 )
                 _activeHint.value = hint
+                _telemetry.value = _telemetry.value.recordHint(hint.techniqueName)
             }
         }
     }
@@ -324,6 +348,84 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissHint() {
         _activeHint.value = null
+    }
+
+    // ========== Demo player (offline step-by-step walkthrough) ==========
+
+    fun startDemo() {
+        val current = _state.value ?: return
+        if (current.isCompleted || _demo.value != null) return
+
+        // A wrong entry makes the trajectory meaningless — surface it first, like a hint.
+        val wrong = findWrongCell(current)
+        if (wrong != null) {
+            _state.value = current.copy(selectedRow = wrong.first, selectedCol = wrong.second)
+            _activeHint.value = Hint(
+                "发现错误",
+                "第${wrong.first + 1}行第${wrong.second + 1}列填错了，先清除它再看演示。",
+                listOf(wrong),
+                null
+            )
+            return
+        }
+
+        val board = Array(9) { r -> IntArray(9) { c -> current.cells[r][c].value } }
+        val steps = LogicSolver.demoTrajectory(board)
+        if (steps.isEmpty()) return
+
+        _activeHint.value = null
+        _demoChallenge.value = null
+        _demo.value = DemoController(steps)
+        _telemetry.value = _telemetry.value.recordDemoViewed()
+        timerJob?.cancel()
+        timerJob = null
+    }
+
+    fun demoNext() {
+        _demoChallenge.value = null
+        _demo.value = _demo.value?.next()
+    }
+
+    fun demoPrev() {
+        _demoChallenge.value = null
+        _demo.value = _demo.value?.prev()
+    }
+
+    fun demoReplay() {
+        _demoChallenge.value = null
+        _demo.value = _demo.value?.replay()
+    }
+
+    fun exitDemo() {
+        _demo.value = null
+        _demoChallenge.value = null
+        resumeTimer()
+    }
+
+    /** Starts a "your turn" challenge on the current step, if it concludes with a placement. */
+    fun startChallenge() {
+        val step = _demo.value?.current ?: return
+        val p = step.placement ?: return
+        _demoChallenge.value = DemoChallenge(p.row, p.col, p.value, step.techniqueName)
+    }
+
+    fun submitChallenge(value: Int) {
+        val ch = _demoChallenge.value ?: return
+        if (ch.result != null) return
+        val correct = value == ch.answer
+        _demoChallenge.value = ch.copy(
+            result = if (correct) DemoChallenge.Result.CORRECT else DemoChallenge.Result.WRONG
+        )
+        _telemetry.value = _telemetry.value.recordChallenge(correct, ch.technique)
+    }
+
+    fun dismissChallenge() {
+        _demoChallenge.value = null
+    }
+
+    private fun clearDemo() {
+        _demo.value = null
+        _demoChallenge.value = null
     }
 
     private fun findWrongCell(state: GameState): Pair<Int, Int>? {
@@ -355,7 +457,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resumeTimer() {
         val current = _state.value ?: return
-        if (!current.isCompleted && timerJob == null) startTimer()
+        // Stay paused while the demo overlay is up (a learning view, not play time).
+        if (!current.isCompleted && timerJob == null && _demo.value == null) startTimer()
     }
 
     private fun stopAllJobs() {
