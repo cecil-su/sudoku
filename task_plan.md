@@ -4,7 +4,7 @@
 开发一个功能完整、体验流畅的 Android 数独游戏，支持多难度级别、笔记标记、提示、计时等核心功能。
 
 ## 当前阶段
-阶段 10 进行中：**10.1 演示引擎 + 10.2 演示播放器 UI 已完成**（2026-06-02）。10.1：三方检测统一到 `stepForward` 共享内核 + `DemoStep.eliminatedCells` + `demoTrajectory`（修复链式断点）。10.2：离线演示播放器（`DemoController` 纯状态机 + 棋盘分阶段高亮叠加层 + 字幕/播放控制 + 默认静音 TTS + 「轮到你」复现校验 + 会话埋点起步）；47 单测全过 + `assembleDebug` 出 APK。**下一步：10.3 多 Provider 设置后台**。范围维持原决策（完整版多 provider + 本期上语音）。v1.x 主体（阶段 1-9）已全部完成。
+阶段 10 进行中：**10.1 演示引擎 + 10.2 演示播放器 UI + 10.3 多 Provider 设置后台（离线部分）已完成**（10.1/10.2：2026-06-02；10.3：2026-06-03）。10.1：三方检测统一到 `stepForward` 共享内核 + `DemoStep.eliminatedCells` + `demoTrajectory`（修复链式断点）。10.2：离线演示播放器（`DemoController` 纯状态机 + 棋盘分阶段高亮叠加层 + 字幕/播放控制 + 默认静音 TTS + 「轮到你」复现校验 + 会话埋点起步）。10.3：`AiProvider`/`AiSettings` 不可变模型 + `ProviderRepository`（DataStore/org.json）+ 设置入口/路由 + Provider 列表/编辑/增删改/切换 + 预置&手动模型；55 单测全过 + `assembleDebug` 出 APK。**范围调整（个人自用）**：砍掉 10.4「首次启用全屏知情同意」P0，连带「🔌测试连接 / 🔄刷新 `/models` / 推理模型请求容错」（均需出站网络）下移 10.4。**下一步：10.4 DeepSeek 接入 + 语音**。v1.x 主体（阶段 1-9）已全部完成。
 
 ## 各阶段
 
@@ -119,22 +119,26 @@
 - **verify**（量化）：✅ 编译 + `assembleDebug` 出 APK；47 单测全过（`DemoControllerTest` 7：空/单步/next/prev/replay/jumpTo 钳位/gotoCell；`SessionTelemetryTest` 5）。逻辑判据自洽：步数=`demoTrajectory` 长度（`下一步`走到 `isAtEnd`，终局 `buildDemoBoard` 全落子=解开）；每步高亮=`controller.current` 的 `DemoStep` 格；prev/replay 回 0；退出不污染（演示从不写 `_state`，棋盘为派生显示态）；静音+无网可走完 + 一次复现。**设备级手动点击待做**（无模拟器）
 - **状态：** complete
 
-#### 10.3 多 Provider 设置后台（完整版）
-- [ ] 数据模型：`providers[]`（id/name/baseURL/apiKey/models）+ activeProviderId + activeModel；存 DataStore（key 明文，BYOK）
-- [ ] 主页加设置入口（齿轮）；NavHost 加 `settings` / `provider_edit` 路由
-- [ ] Provider 列表（卡片 + FAB 添加 + 当前选中标记）→ 编辑页（名称 / baseURL / Key 遮罩 / 模型清单[预置 + 🔄刷新 `/models` + 手动] / 🔌测试连接）
-- [ ] 请求构造容忍推理模型差异（reasoner/o1 不吃 temperature）
-- **verify**：能增删改/切换 provider；测试连接通/不通有反馈；模型清单三种来源都可用
-- **状态：** pending
+#### 10.3 多 Provider 设置后台（离线部分）
+
+> **范围调整（2026-06-03）：** 用户裁定本 App 为个人自用 → **砍掉 10.4「首次启用全屏知情同意」P0**。连带「🔌测试连接 / 🔄刷新 `/models` / 推理模型请求容错」因都需出站网络（且原与同意闸门时序耦合），一并**下移到 10.4** 与 HTTP 层同落。10.3 = 纯离线 Provider 后台（无 `INTERNET` 权限）。
+
+- [x] 数据模型：`AiProvider`（id/name/baseUrl/apiKey/models/activeModel）+ `AiSettings`（providers[] + activeProviderId，**不可变纯转换** upsert/remove/setActive/setModel，沿用 `SessionTelemetry` 范式）；`ProviderRepository` 存 DataStore（**org.json 单 JSON 串**，照 `GameRepository` 范式，key 明文 BYOK，损坏 JSON 降级空设置）
+- [x] 主页加设置入口（齿轮，`Column` 内 `align(End)` 不重排既有布局）；NavHost 加 `settings` / `provider_edit?providerId={id}` 路由；`SettingsViewModel`（`AndroidViewModel` + `viewModel()`，沿用 `GameViewModel` 范式）
+- [x] Provider 列表（卡片 + 单选「当前」+ FAB 添加 + 空态）→ 编辑页（名称 / baseURL / Key 遮罩+显隐 / 模型 ID + 预置快填&建议 chips[预置 + 手动两种来源]）
+- [→10.4] 🔌测试连接 / 🔄刷新 `/models` / 请求构造容忍推理模型差异（reasoner/o1 不吃 temperature）—— 三者均需 HTTP + `INTERNET`，随 10.4 HTTP 层同落
+- **verify**：✅ 编译全工程 + `assembleDebug` 出 APK；55 单测全过（新增 `AiSettingsTest` 8：空态 / 首个自动激活 / 不抢激活 / 同 id 替换 / 删激活回退首个 / 删尽清空 / setActive 忽略未知 / setModel 仅改目标）。**设备级手动点击待做**（增删改/切换/预置快填/Key 显隐/空态）
+- **状态：** complete（离线部分；网络部分见 10.4）
 
 #### 10.4 DeepSeek 接入 + 语音（增强层）
 - [ ] HTTP 客户端（OpenAI 兼容 `/chat/completions`，SSE 流式）；`INTERNET` 权限；引入 JSON 序列化
+- [ ] **[从 10.3 下移]** Provider 编辑页接通：🔌测试连接（最小请求探活，✅/❌ 反馈）/ 🔄刷新 `/models`（拉真实模型清单，与预置/手动并为三来源）/ 请求构造容忍推理模型差异（reasoner/o1 不吃 temperature）
 - [ ] **第二控制器**：玩家语音意图经 DeepSeek **function calling** 映射到 `DemoController` 同一组函数（next/prev/replay/jumpTo/gotoCell/explainTechnique）
 - [ ] 语音 I/O：`RECORD_AUDIO` 运行时权限；`SpeechRecognizer`（中文）输入；TTS 念 DeepSeek 旁白；支持打断（barge-in）
 - [ ] system prompt 契约：耐心教练 + 盘面 + 引擎已验证轨迹 + 当前位置 + 可用工具；只能导航/讲解，禁止自行解题
 - [ ] 按钮常驻 + 可对话（不互斥）；未配 key / 断网自动回退到 10.2
 - [ ] **[评审P0]资源生命周期绑界面**：网络 / `SpeechRecognizer` / `TextToSpeech` / 在途请求一律绑 Activity/Composable 的 `onStop`/`onDestroy` 显式 `cancel()`/`stop()`/`shutdown()`——⚠️ **不可照搬计时器的 `viewModelScope`+`onCleared`（退后台不取消 → 后台仍录音 / 泄漏 / ANR）**
-- [ ] **[评审P0]首次启用全屏知情同意**：默认**关**；两级授权（① AI 旁白 = 只发盘面文本 / ② 语音输入 = 发麦克风转写）；明确"发往你配置的第三方服务商、非本 App 服务器"，点明 STT 音频可能经 Google
+- [x] ~~**[评审P0]首次启用全屏知情同意**~~ → **已砍（2026-06-03，用户裁定个人自用 App）**。无同意闸门；AI 仍"默认关"，但仅以"未配置 provider = 无 AI"自然门控，不再弹两级授权屏
 - [ ] 追加 AI 使用事件到 10.2 的会话埋点（仍仅本地、不外发）
 - [ ] 横切：限流 + 每日上限、超时/错误降级
 - **verify**：配 key 后语音"下一步 / 为什么这格"能驱动同一演示；断网 / 未配 key / 中途超时三条路径下演示仍能完整走查（复用 10.2 判据）；麦克风在退到后台时确实停止
@@ -165,6 +169,8 @@
 | 确定性骨架 + AI 增强分层 | 离线可跑、grounding 天然成立、骨架零返工 |
 | 多 provider BYOK + 可配 baseURL | provider 无关、守住"无后端"基因、不堵代理路 |
 | 离线=按钮 / 有AI=按钮+对话 | 翻页按钮永远比语音快/省/稳；AI 赢在按钮表达不了的意图 |
+| 个人自用 → 砍知情同意闸门 | 单用户 BYOK、自己即开发者，两级全屏同意屏属过度设计；网络项随 HTTP 层下移 10.4 |
+| Provider 持久化用 org.json | 照 `GameRepository` 既有范式，零新依赖；kotlinx.serialization 留到 10.4 网络 DTO 再引 |
 
 ## 遇到的错误
 | 错误 | 尝试次数 | 解决方案 |

@@ -13,8 +13,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +34,7 @@ import com.sudoku.game.model.GameStats
 fun HomeScreen(
     onStartGame: (Difficulty) -> Unit,
     onContinueGame: () -> Unit,
+    onOpenSettings: () -> Unit,
     hasSavedGame: Boolean,
     stats: GameStats,
     modifier: Modifier = Modifier
@@ -42,6 +47,13 @@ fun HomeScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        IconButton(
+            onClick = onOpenSettings,
+            modifier = Modifier.align(Alignment.End)
+        ) {
+            Icon(Icons.Filled.Settings, contentDescription = "设置")
+        }
+
         Text(
             text = "数独",
             fontSize = 48.sp,

@@ -5,6 +5,20 @@
 - 纯离线单机，无广告/内购
 - Kotlin + Jetpack Compose，API 26+
 
+## 技术发现（2026-06-03）：10.3 多 Provider 设置后台落地（离线）+ 两个范围裁定
+
+**范围裁定（用户：本 App 个人自用）**：① **砍掉 10.4「首次启用全屏知情同意」P0**——单用户 BYOK、自己即开发者，两级全屏同意屏属过度设计；AI 改由"未配置 provider = 无 AI"自然门控（仍默认关）。② 连带「测试连接 / `/models` 刷新 / 推理模型请求容错」因都需出站网络（且原与同意闸门时序耦合：测试连接是**第一个出站调用**，本须先过同意）**下移 10.4** 与 HTTP 层同落。10.3 守住"无 `INTERNET` 权限"的纯离线基因。**保留** 10.4「资源绑 onStop」P0（非隐私，是后台录音/泄漏问题）。
+
+**持久化用 `org.json`、非 kotlinx.serialization**：phase 6 `GameRepository` 既用 `org.json` 手写存档 → `ProviderRepository` 照搬（单 JSON 串塞一个 Preferences key），**零新依赖**。⚠️ 关键约束：`org.json` 是 Android framework 类，**JVM 单测里被 stub（"not mocked"）不可用** → `GameRepository` 的 JSON 从来没单测。对策（沿用 `SessionTelemetry`/`DemoController` 范式）：**模型层保持 Android-free + 不可变纯转换**（`AiSettings.upsert/remove/setActive/setModel`），纯转换**单测**（`AiSettingsTest` 8 测试）；JSON encode/decode 留在 repo（Context 绑定、不进 JVM 单测，损坏降级空设置）。10.4 网络 DTO 再决定 org.json vs 引 kotlinx.serialization。
+
+**结构变化：出现第二个 ViewModel**。此前 App 仅 `GameViewModel` 一只。`SettingsViewModel`（`AndroidViewModel` + `viewModel()`，与 `GameViewModel` 同范式）在 `MainActivity` NavHost 层与 game VM 并列；`settings`/`provider_edit` 两路由共享它。provider_edit 用**可选 navArgument** `provider_edit?providerId={id}`（nullable，null=新增）；编辑页从 `settings.value.providers.firstOrNull{id}` 取既有项。冷启动直达编辑的"瞬时 null"边角已接受（永远从已加载的列表进入）。
+
+**图标只用 material-icons-core**：Add/Settings/ArrowBack/Delete 均在 core，未引 `material-icons-extended`（守依赖精简，10.4 同此）。Key 显隐用文字按钮（"显示/隐藏"）而非 Visibility 图标（后者在 extended）。
+
+**模型清单当前两来源（预置 + 手动）**：编辑页 `PRESETS`（DeepSeek/OpenAI）给"快填 provider"AssistChip + 按 baseUrl 关键词匹配的建议 FilterChip；手动直接编辑"模型 ID"字段。第三来源「🔄 `/models` 拉取」随 10.4 网络层补齐 → 三来源合一。
+
+**验证**：55 单测全过（+8）；`assembleDebug` 出 APK（主源 + Compose 全编译过）。设备级点击（增删改/切换/快填/Key 显隐/空态）待做（无模拟器）。
+
 ## 技术发现（2026-06-02）：10.2 演示播放器落地（离线·按钮）
 
 **形态**：棋盘在上为主角、下方"演示面板"（字幕 + 播放控制），数字盘在演示态隐藏让位——不是覆盖式叠层，符合第二会话"棋盘被画着、下方一条字幕"的定调。入口 = 顶栏「▶演示」图标（用户选）。

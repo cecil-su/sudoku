@@ -19,12 +19,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.compose.runtime.collectAsState
 import com.sudoku.game.model.Difficulty
 import com.sudoku.game.ui.screen.GameScreen
 import com.sudoku.game.ui.screen.HomeScreen
+import com.sudoku.game.ui.screen.ProviderEditScreen
+import com.sudoku.game.ui.screen.SettingsScreen
 import com.sudoku.game.ui.theme.SudokuTheme
 import com.sudoku.game.viewmodel.GameViewModel
+import com.sudoku.game.viewmodel.SettingsViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,6 +43,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
                     val gameViewModel: GameViewModel = viewModel()
+                    val settingsViewModel: SettingsViewModel = viewModel()
 
                     // Confirmation dialog state
                     var pendingDifficulty by remember { mutableStateOf<Difficulty?>(null) }
@@ -77,6 +83,7 @@ class MainActivity : ComponentActivity() {
                                     gameViewModel.continueGame()
                                     navController.navigate("game") { launchSingleTop = true }
                                 },
+                                onOpenSettings = { navController.navigate("settings") },
                                 hasSavedGame = hasSaved,
                                 stats = stats
                             )
@@ -84,6 +91,40 @@ class MainActivity : ComponentActivity() {
                         composable("game") {
                             GameScreen(
                                 viewModel = gameViewModel,
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("settings") {
+                            val settings by settingsViewModel.settings.collectAsState()
+                            SettingsScreen(
+                                settings = settings,
+                                onAdd = { navController.navigate("provider_edit") },
+                                onEdit = { id -> navController.navigate("provider_edit?providerId=$id") },
+                                onSelectActive = { id -> settingsViewModel.selectProvider(id) },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable(
+                            route = "provider_edit?providerId={providerId}",
+                            arguments = listOf(navArgument("providerId") {
+                                type = NavType.StringType
+                                nullable = true
+                                defaultValue = null
+                            })
+                        ) { backStackEntry ->
+                            val settings by settingsViewModel.settings.collectAsState()
+                            val editingId = backStackEntry.arguments?.getString("providerId")
+                            val existing = settings.providers.firstOrNull { it.id == editingId }
+                            ProviderEditScreen(
+                                existing = existing,
+                                onSave = {
+                                    settingsViewModel.saveProvider(it)
+                                    navController.popBackStack()
+                                },
+                                onDelete = { id ->
+                                    settingsViewModel.deleteProvider(id)
+                                    navController.popBackStack()
+                                },
                                 onBack = { navController.popBackStack() }
                             )
                         }

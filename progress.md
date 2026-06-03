@@ -1,5 +1,32 @@
 # 进度日志
 
+## 会话：2026-06-03
+
+### 提交 10.1 + 10.2（拆两提交）
+- **状态：** complete
+- 续接前 10.1/10.2 代码全部悬在工作区未提交。先跑 `:app:testDebugUnitTest` 闸门（绿），再拆两个提交：
+  - `91dc66d` refactor(engine)：10.1 共享内核（`LogicSolver` + `DemoStep` + 测试，+347/−443）
+  - `9375427` feat(demo)：10.2 离线演示播放器（14 文件，+1044/−50，6 新文件）
+- `.claude/settings.local.json` 按约定不进功能提交。
+
+### 阶段 10.3：多 Provider 设置后台（离线部分）
+- **状态：** complete（离线部分）
+- 背景：实现 AI 教练的配置后台——Provider 增删改/切换 + 模型选择，纯离线，为 10.4 接 DeepSeek 铺路。
+- **两个范围决策（用户裁定本 App 个人自用）：**
+  1. **砍掉 10.4「首次启用全屏知情同意」P0**：单用户 BYOK、自己即开发者，两级全屏同意屏属过度设计。AI 仍"默认关"，但改由"未配置 provider = 无 AI"自然门控。
+  2. **网络项下移 10.4**：「测试连接 / `/models` 刷新 / 推理模型请求容错」均需出站网络（原与同意闸门时序耦合），随 10.4 HTTP 层同落。10.3 = 纯离线后台，不加 `INTERNET` 权限。
+- 执行的操作（5 步增量，每步验证）：
+  - `model/AiProvider.kt` + `model/AiSettings.kt`：不可变模型 + 纯转换（upsert/remove/setActive/setModel），沿用 `SessionTelemetry`/`DemoController` 范式。`AiSettingsTest` 8 测试（纯转换，避开 `org.json` 在 JVM 单测不可用）。
+  - `data/ProviderRepository.kt`：DataStore + `org.json` 单 JSON 串持久化，照 `GameRepository` 范式（零新依赖），损坏 JSON 降级空设置。
+  - `viewmodel/SettingsViewModel.kt`：`AndroidViewModel`，`stateIn` 暴露 `settings`，三个 intent（save/delete/select）。
+  - `ui/screen/SettingsScreen.kt`：Provider 列表（卡片 + 单选「当前」+ FAB + 空态）。`ui/screen/ProviderEditScreen.kt`：名称/baseURL/Key 遮罩+显隐/模型 ID + 预置快填&建议 chips（DeepSeek/OpenAI 预置 + 手动）。图标全用 material-icons-core 自带（不引扩展包）。
+  - `MainActivity` 接线：`SettingsViewModel` + `settings`/`provider_edit?providerId={id}` 路由；`HomeScreen` 右上角齿轮（`Column` 内 `align(End)`，不重排既有居中布局）。
+- 验证：编译全工程 + `assembleDebug` 出 APK；55 单测全过（+8 `AiSettingsTest`）。设备级手动点击未做（无模拟器）。
+- 创建/修改的文件：
+  - 新增：`model/AiProvider.kt`、`model/AiSettings.kt`、`data/ProviderRepository.kt`、`viewmodel/SettingsViewModel.kt`、`ui/screen/SettingsScreen.kt`、`ui/screen/ProviderEditScreen.kt`、`test/.../AiSettingsTest.kt`
+  - 修改：`MainActivity.kt`、`ui/screen/HomeScreen.kt`
+- 下一步：10.4 DeepSeek 接入 + 语音（HTTP/SSE + function calling 第二控制器 + 语音 I/O + 资源绑 onStop；顺带接通测试连接/`/models` 刷新）。
+
 ## 会话：2026-06-02
 
 ### 阶段 9：教学式提示系统（v1.9.0）
