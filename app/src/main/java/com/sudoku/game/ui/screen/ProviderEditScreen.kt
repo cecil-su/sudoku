@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -32,12 +34,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.sudoku.game.model.AiProvider
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 private data class ProviderPreset(
@@ -64,6 +68,7 @@ fun ProviderEditScreen(
     existing: AiProvider?,
     onSave: (AiProvider) -> Unit,
     onDelete: (String) -> Unit,
+    onTest: suspend (AiProvider) -> Result<List<String>>,
     onBack: () -> Unit
 ) {
     val id = remember { existing?.id ?: UUID.randomUUID().toString() }
@@ -72,9 +77,29 @@ fun ProviderEditScreen(
     var apiKey by remember { mutableStateOf(existing?.apiKey ?: "") }
     var model by remember { mutableStateOf(existing?.activeModel ?: "") }
     var showKey by remember { mutableStateOf(false) }
+    var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<String?>(null) }
+    var fetchedModels by remember { mutableStateOf<List<String>>(emptyList()) }
+    val scope = rememberCoroutineScope()
 
-    val suggestions = modelSuggestions(baseUrl)
+    val suggestions = (fetchedModels + modelSuggestions(baseUrl)).distinct()
     val canSave = name.isNotBlank() && baseUrl.isNotBlank()
+    val canTest = baseUrl.isNotBlank() && apiKey.isNotBlank() && !testing
+
+    fun buildProvider(): AiProvider {
+        val models = (existing?.models.orEmpty() + fetchedModels + model)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        return AiProvider(
+            id = id,
+            name = name.trim(),
+            baseUrl = baseUrl.trim(),
+            apiKey = apiKey.trim(),
+            models = models,
+            activeModel = model.trim().ifBlank { null }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -162,25 +187,53 @@ fun ProviderEditScreen(
                 }
             }
 
+            Button(
+                onClick = {
+                    testResult = null
+                    testing = true
+                    scope.launch {
+                        val result = onTest(buildProvider())
+                        testing = false
+                        result
+                            .onSuccess { models ->
+                                fetchedModels = models
+                                if (model.isBlank()) models.firstOrNull()?.let { model = it }
+                                testResult = "✅ 连接成功，获取到 ${models.size} 个模型"
+                            }
+                            .onFailure { testResult = "❌ ${it.message ?: "连接失败"}" }
+                    }
+                },
+                enabled = canTest,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            ) {
+                if (testing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Text("  测试中…")
+                } else {
+                    Text("🔌 测试连接 / 拉取模型")
+                }
+            }
+            testResult?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (it.startsWith("✅")) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.error
+                )
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
 
             Button(
-                onClick = {
-                    val models = (existing?.models.orEmpty() + model)
-                        .map { it.trim() }
-                        .filter { it.isNotEmpty() }
-                        .distinct()
-                    onSave(
-                        AiProvider(
-                            id = id,
-                            name = name.trim(),
-                            baseUrl = baseUrl.trim(),
-                            apiKey = apiKey.trim(),
-                            models = models,
-                            activeModel = model.trim().ifBlank { null }
-                        )
-                    )
-                },
+                onClick = { onSave(buildProvider()) },
                 enabled = canSave,
                 modifier = Modifier.fillMaxWidth()
             ) {

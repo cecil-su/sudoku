@@ -3,11 +3,15 @@ package com.sudoku.game.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.sudoku.game.ai.AiCoach
+import com.sudoku.game.ai.ChatMessage
 import com.sudoku.game.data.GameRepository
+import com.sudoku.game.data.ProviderRepository
 import com.sudoku.game.data.StatsRepository
 import com.sudoku.game.engine.LogicSolver
 import com.sudoku.game.engine.SudokuGenerator
 import com.sudoku.game.engine.SudokuValidator
+import com.sudoku.game.model.AiProvider
 import com.sudoku.game.model.Cell
 import com.sudoku.game.model.DemoChallenge
 import com.sudoku.game.model.DemoController
@@ -15,13 +19,18 @@ import com.sudoku.game.model.Difficulty
 import com.sudoku.game.model.GameState
 import com.sudoku.game.model.Hint
 import com.sudoku.game.model.SessionTelemetry
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -31,7 +40,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val gameRepo = GameRepository(application)
     private val statsRepo = StatsRepository(application)
+    private val providerRepo = ProviderRepository(application)
+    private val coach = AiCoach()
     private val saveMutex = Mutex()
+    private var aiHistory = emptyList<ChatMessage>()
+    // AI work runs here, NOT in viewModelScope: it must cancel when the screen stops
+    // (resource-lifecycle rule), not only when the VM is cleared. Recreated after cancel.
+    private var aiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _state = MutableStateFlow<GameState?>(null)
     val state: StateFlow<GameState?> = _state.asStateFlow()
@@ -67,6 +82,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // Local-only learning telemetry — never serialized into GameState, never sent anywhere.
     private val _telemetry = MutableStateFlow(SessionTelemetry())
     val telemetry: StateFlow<SessionTelemetry> = _telemetry.asStateFlow()
+
+    val activeProvider: StateFlow<AiProvider?> = providerRepo.settings
+        .map { it.activeProvider }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    private val _aiBusy = MutableStateFlow(false)
+    val aiBusy: StateFlow<Boolean> = _aiBusy.asStateFlow()
+
+    // Latest AI coach reply to show/speak in the demo panel (cleared on manual nav).
+    private val _coachReply = MutableStateFlow<String?>(null)
+    val coachReply: StateFlow<String?> = _coachReply.asStateFlow()
 
     val stats = statsRepo.getStats()
         .stateIn(viewModelScope, SharingStarted.Eagerly, com.sudoku.game.model.GameStats())
@@ -375,6 +401,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         _activeHint.value = null
         _demoChallenge.value = null
+        aiHistory = emptyList()
+        _coachReply.value = null
         _demo.value = DemoController(steps)
         _telemetry.value = _telemetry.value.recordDemoViewed()
         timerJob?.cancel()
@@ -383,20 +411,26 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun demoNext() {
         _demoChallenge.value = null
+        _coachReply.value = null
         _demo.value = _demo.value?.next()
     }
 
     fun demoPrev() {
         _demoChallenge.value = null
+        _coachReply.value = null
         _demo.value = _demo.value?.prev()
     }
 
     fun demoReplay() {
         _demoChallenge.value = null
+        _coachReply.value = null
         _demo.value = _demo.value?.replay()
     }
 
     fun exitDemo() {
+        stopAiWork()
+        aiHistory = emptyList()
+        _coachReply.value = null
         _demo.value = null
         _demoChallenge.value = null
         resumeTimer()
@@ -423,7 +457,55 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _demoChallenge.value = null
     }
 
+    /**
+     * Sends a typed/spoken intent to the AI coach. The coach may navigate the demo
+     * (driving the same [DemoController]) and/or explain; its reply lands in
+     * [coachReply]. Runs in [aiScope] — NOT viewModelScope — so it is cancelled when
+     * the screen stops, not only when the VM is cleared.
+     */
+    fun askCoach(text: String) {
+        val intent = text.trim()
+        if (intent.isEmpty() || _aiBusy.value) return
+        val provider = activeProvider.value ?: return
+        val controller = _demo.value ?: return
+        val current = _state.value ?: return
+        _aiBusy.value = true
+        aiScope.launch {
+            try {
+                val givens = Array(9) { r ->
+                    IntArray(9) { c -> current.cells[r][c].let { if (it.isGiven) it.value else 0 } }
+                }
+                val turn = coach.respond(provider, controller, givens, aiHistory, intent)
+                aiHistory = turn.history
+                _demoChallenge.value = null
+                _demo.value = turn.controller
+                _coachReply.value = turn.narration.ifBlank { "（没有更多说明）" }
+                _telemetry.value = _telemetry.value.recordAiUsed()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _coachReply.value = "⚠️ ${e.message ?: "AI 调用失败"}"
+            } finally {
+                _aiBusy.value = false
+            }
+        }
+    }
+
+    /**
+     * Cancels any in-flight AI request. Bound to the screen's ON_STOP — must NOT rely
+     * on viewModelScope, which survives backgrounding (it would keep the request and
+     * its network connection alive in the background).
+     */
+    fun stopAiWork() {
+        aiScope.cancel()
+        aiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        _aiBusy.value = false
+    }
+
     private fun clearDemo() {
+        stopAiWork()
+        aiHistory = emptyList()
+        _coachReply.value = null
         _demo.value = null
         _demoChallenge.value = null
     }

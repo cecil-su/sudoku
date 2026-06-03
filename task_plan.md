@@ -4,7 +4,7 @@
 开发一个功能完整、体验流畅的 Android 数独游戏，支持多难度级别、笔记标记、提示、计时等核心功能。
 
 ## 当前阶段
-阶段 10 进行中：**10.1 演示引擎 + 10.2 演示播放器 UI + 10.3 多 Provider 设置后台（离线部分）已完成**（10.1/10.2：2026-06-02；10.3：2026-06-03）。10.1：三方检测统一到 `stepForward` 共享内核 + `DemoStep.eliminatedCells` + `demoTrajectory`（修复链式断点）。10.2：离线演示播放器（`DemoController` 纯状态机 + 棋盘分阶段高亮叠加层 + 字幕/播放控制 + 默认静音 TTS + 「轮到你」复现校验 + 会话埋点起步）。10.3：`AiProvider`/`AiSettings` 不可变模型 + `ProviderRepository`（DataStore/org.json）+ 设置入口/路由 + Provider 列表/编辑/增删改/切换 + 预置&手动模型；55 单测全过 + `assembleDebug` 出 APK。**范围调整（个人自用）**：砍掉 10.4「首次启用全屏知情同意」P0，连带「🔌测试连接 / 🔄刷新 `/models` / 推理模型请求容错」（均需出站网络）下移 10.4。**下一步：10.4 DeepSeek 接入 + 语音**。v1.x 主体（阶段 1-9）已全部完成。
+阶段 10 进行中：**10.1 演示引擎 + 10.2 演示播放器 UI + 10.3 多 Provider 设置后台 + 10.4 DeepSeek 接入 + 语音 已完成**（10.1/10.2：2026-06-02；10.3/10.4：2026-06-03）。10.1：三方检测统一到 `stepForward` 共享内核 + `DemoStep.eliminatedCells` + `demoTrajectory`（修复链式断点）。10.2：离线演示播放器（`DemoController` 纯状态机 + 棋盘分阶段高亮叠加层 + 字幕/播放控制 + 默认静音 TTS + 「轮到你」复现校验 + 会话埋点起步）。10.3：`AiProvider`/`AiSettings` 不可变模型 + `ProviderRepository`（DataStore/org.json）+ 设置入口/路由 + Provider 列表/编辑/增删改/切换 + 预置&手动模型；55 单测全过 + `assembleDebug` 出 APK。**范围调整（个人自用）**：砍掉 10.4「首次启用全屏知情同意」P0，连带「🔌测试连接 / 🔄刷新 `/models` / 推理模型请求容错」（均需出站网络）下移 10.4（本会话已随 10.4 一并落地）。10.4：`AiClient`（非流式 HTTP）+ `AiCoach`（function-calling 第二控制器）+ `VoiceInput`（中文 STT）+ TTS 朗读 + 资源绑 onStop + 接通测试连接/`/models`；66 单测全过 + APK，**设备级未测**。**下一步：10.5 复盘 + 飞轮（P1，本期可不做）**。v1.x 主体（阶段 1-9）已全部完成。
 
 ## 各阶段
 
@@ -131,18 +131,22 @@
 - **状态：** complete（离线部分；网络部分见 10.4）
 
 #### 10.4 DeepSeek 接入 + 语音（增强层）
-- [ ] HTTP 客户端（OpenAI 兼容 `/chat/completions`，SSE 流式）；`INTERNET` 权限；引入 JSON 序列化
-- [ ] **[从 10.3 下移]** Provider 编辑页接通：🔌测试连接（最小请求探活，✅/❌ 反馈）/ 🔄刷新 `/models`（拉真实模型清单，与预置/手动并为三来源）/ 请求构造容忍推理模型差异（reasoner/o1 不吃 temperature）
-- [ ] **第二控制器**：玩家语音意图经 DeepSeek **function calling** 映射到 `DemoController` 同一组函数（next/prev/replay/jumpTo/gotoCell/explainTechnique）
-- [ ] 语音 I/O：`RECORD_AUDIO` 运行时权限；`SpeechRecognizer`（中文）输入；TTS 念 DeepSeek 旁白；支持打断（barge-in）
-- [ ] system prompt 契约：耐心教练 + 盘面 + 引擎已验证轨迹 + 当前位置 + 可用工具；只能导航/讲解，禁止自行解题
-- [ ] 按钮常驻 + 可对话（不互斥）；未配 key / 断网自动回退到 10.2
-- [ ] **[评审P0]资源生命周期绑界面**：网络 / `SpeechRecognizer` / `TextToSpeech` / 在途请求一律绑 Activity/Composable 的 `onStop`/`onDestroy` 显式 `cancel()`/`stop()`/`shutdown()`——⚠️ **不可照搬计时器的 `viewModelScope`+`onCleared`（退后台不取消 → 后台仍录音 / 泄漏 / ANR）**
-- [x] ~~**[评审P0]首次启用全屏知情同意**~~ → **已砍（2026-06-03，用户裁定个人自用 App）**。无同意闸门；AI 仍"默认关"，但仅以"未配置 provider = 无 AI"自然门控，不再弹两级授权屏
-- [ ] 追加 AI 使用事件到 10.2 的会话埋点（仍仅本地、不外发）
-- [ ] 横切：限流 + 每日上限、超时/错误降级
-- **verify**：配 key 后语音"下一步 / 为什么这格"能驱动同一演示；断网 / 未配 key / 中途超时三条路径下演示仍能完整走查（复用 10.2 判据）；麦克风在退到后台时确实停止
-- **状态：** pending
+
+> **简化（2026-06-03，个人自用）：** ① **非流式**——`/chat/completions` 整段返回再显示/朗读（function-calling 本就短），SSE 流式留作后续打磨；② 限流只做**会话内超时/错误降级**，**每日上限**（需持久化）留作后续；③ JSON 用 `org.json`（零新依赖），未引 kotlinx.serialization。
+
+- [x] HTTP 客户端：`ai/AiClient.kt`（`HttpURLConnection` 非流式 + org.json，`/chat/completions` + `/models`，15s/30s 超时，best-effort 取消）；`INTERNET` 权限；推理模型（reasoner/o1-o4）省略 `temperature`
+- [x] **[从 10.3 下移]** Provider 编辑页接通：🔌测试连接 + 🔄`/models` 刷新（共用 `fetchModels`，成功=可达+key 有效，拉到的模型成第三来源）
+- [x] **第二控制器**：`ai/AiCoach.kt`——意图经 function calling 映射到 `DemoController`（next/prev/replay/jumpTo/gotoCell）；工具分发抽纯函数 `applyCoachTool`（1-based↔0-based，11 单测）；导航后回灌 tool 结果让模型讲解（≤4 轮，兜底补 assistant 保历史合法）
+- [x] 语音 I/O：`ai/VoiceInput.kt`（`SpeechRecognizer` 中文 zh-CN）；`RECORD_AUDIO` 运行时权限（`rememberLauncherForActivityResult`）；TTS 念回复（复用 10.2，默认静音）；barge-in（点麦克风停 TTS）
+- [x] system prompt 契约：耐心教练 + 盘面 givens + 引擎已验证轨迹（逐步列出）+ 当前位置 + 工具；铁律"只导航/讲解、禁止自行解题"
+- [x] 按钮常驻 + 可对话（演示面板下方文字框 + 🎙️，与翻页按钮并存）；未配 provider → 无 AI UI（纯 10.2）；断网/出错 → `coachReply` 显示 ⚠️、演示仍可按钮走查
+- [x] **[评审P0]资源生命周期绑界面**：网络（`aiScope` **非 viewModelScope**，`ON_STOP` `cancel()` 并重建）/ `SpeechRecognizer`（`onDispose` destroy、`ON_STOP` stop）/ `TextToSpeech`（已绑）——退后台即停，不泄漏/不后台录音
+- [x] ~~**[评审P0]首次启用全屏知情同意**~~ → **已砍（用户裁定个人自用）**；AI 以"未配置 provider = 无 AI"自然门控
+- [x] 追加 AI 使用事件到会话埋点：`SessionTelemetry.recordAiUsed`（仍仅本地、不外发）
+- [x] 横切：超时（连 15s/读 30s）+ 错误降级（401/402/404/429/5xx 友好中文映射）；~~每日上限~~ 留后续
+- [→后续] SSE 流式输出 / 每日调用上限（需持久化）
+- **verify**：✅ 编译全工程 + `assembleDebug` 出 APK；66 单测全过（新增 `AiCoachToolTest` 11：工具分发 1-based↔0-based + conclusion 渲染）。⚠️ **网络/STT/TTS/权限均为设备运行时行为，无模拟器只能编译+逻辑自洽，"真机可用"待跑**（配 key→测试连接→演示中文字/语音问"下一步/为什么这格"；断网/未配 key 回退；退后台麦克风停）
+- **状态：** complete（设备级未测）
 
 #### 10.5 复盘 + 飞轮（P1 · 本期可不做）
 - [ ] ~~会话埋点~~ → **已上移到 10.2（P0）**，P0 期即开始攒数据，避免"数据断流"

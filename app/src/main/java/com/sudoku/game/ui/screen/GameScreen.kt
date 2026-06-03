@@ -63,6 +63,9 @@ fun GameScreen(
     val activeHint by viewModel.activeHint.collectAsState()
     val demo by viewModel.demo.collectAsState()
     val demoChallenge by viewModel.demoChallenge.collectAsState()
+    val activeProvider by viewModel.activeProvider.collectAsState()
+    val aiBusy by viewModel.aiBusy.collectAsState()
+    val coachReply by viewModel.coachReply.collectAsState()
     val isDarkTheme = isSystemInDarkTheme()
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -71,6 +74,7 @@ fun GameScreen(
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> viewModel.pauseTimer()
                 Lifecycle.Event.ON_RESUME -> viewModel.resumeTimer()
+                Lifecycle.Event.ON_STOP -> viewModel.stopAiWork()
                 else -> {}
             }
         }
@@ -140,6 +144,10 @@ fun GameScreen(
                     onTry = { viewModel.startChallenge() },
                     onSubmit = { viewModel.submitChallenge(it) },
                     onCancelChallenge = { viewModel.dismissChallenge() },
+                    aiAvailable = activeProvider != null,
+                    aiBusy = aiBusy,
+                    coachReply = coachReply,
+                    onAsk = { viewModel.askCoach(it) },
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
             } else {

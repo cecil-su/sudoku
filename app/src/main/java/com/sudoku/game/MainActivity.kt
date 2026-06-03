@@ -125,6 +125,7 @@ class MainActivity : ComponentActivity() {
                                     settingsViewModel.deleteProvider(id)
                                     navController.popBackStack()
                                 },
+                                onTest = { settingsViewModel.fetchModels(it) },
                                 onBack = { navController.popBackStack() }
                             )
                         }

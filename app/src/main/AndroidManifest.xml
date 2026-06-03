@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- AI coach (10.4): talks to the user-configured third-party LLM provider (BYOK). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Voice input for the AI coach; requested at runtime, optional. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <application
         android:name=".SudokuApp"
         android:allowBackup="true"

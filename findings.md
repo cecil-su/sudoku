@@ -5,6 +5,22 @@
 - 纯离线单机，无广告/内购
 - Kotlin + Jetpack Compose，API 26+
 
+## 技术发现（2026-06-03）：10.4 DeepSeek 接入 + 语音落地（一气做）
+
+**[评审P0] 资源生命周期：AI 网络绝不能跑在 `viewModelScope`。** 本 App 的 `GameViewModel` 是 **Activity 作用域**（`MainActivity` 里 `viewModel()`），`viewModelScope` 只在 Activity 销毁（`onCleared`）才取消——**退后台不取消**。若把 AI 网络请求放 `viewModelScope`，退到后台请求仍在跑（耗流量/电、潜在泄漏），正是评审 P0 担心的。对策：VM 持一个独立 `aiScope = CoroutineScope(SupervisorJob()+Main.immediate)`，`askCoach` 跑在它上面；`GameScreen` 的 `ON_STOP` → `viewModel.stopAiWork()` `cancel()` 并重建 scope。STT 绑 `onDispose` destroy + `ON_STOP` stop，TTS 沿用 10.2。计时器用 `viewModelScope` 是对的（要跨配置变更存活），AI/麦克风用它是错的——**同一 VM 内两种 scope 策略并存**。
+
+**取消必须重抛 `CancellationException`。** `stopAiWork` 取消在飞的 `askCoach` 时抛 `CancellationException`，它是 `Exception` 子类——通用 `catch (e: Exception)` 会把它当错误吞掉（显示"⚠️ AI 调用失败"）且破坏结构化并发。必须 `catch (e: CancellationException) { throw e }` 先于通用 catch。这是协程里反复踩的坑，记牢。
+
+**function-calling 历史不能以 `tool` 消息结尾。** OpenAI 协议：`tool`（工具结果）消息后必须跟 `assistant`。`AiCoach.respond` 的多轮循环若 `MAX_ROUNDS`（4）耗尽时最后一步是工具调用，历史就停在 `tool`，下一轮追加 `user` 变成 `…tool, user` 被服务端拒。兜底：循环结束补一条 `assistant`（factual 当前步）再返回。正常路径（模型导航后返回 content）天然以 assistant 收尾，无此问题。
+
+**1-based↔0-based 接缝。** 模型看到的盘面/轨迹是 **1-based**（"第 3 步"、"R3C5"、jumpTo(index=3)、gotoCell(row,col)），`DemoController` 内部是 **0-based**。转换点集中在工具分发：`applyCoachTool(ctrl, name, index?, row?, col?)` 做 `index-1`/`row-1,col-1`。**故意抽成纯函数**（基本类型入参、不碰 org.json）以便 JVM 单测（`AiCoachToolTest` 11 测，直怼这个易错的减一）。同理 `conclusion(step)` 渲染 R/C 也是 +1。
+
+**networking 也用 `org.json` + 非流式 + 零新依赖。** 沿用 10.3 的判断：`AiClient` 用 `HttpURLConnection` + org.json 手搓 OpenAI 兼容 `/chat/completions`、`/models`，**没引 OkHttp / Retrofit / kotlinx.serialization**。**非流式**（`stream:false`、整段返回再显示/朗读）——function-calling 响应本就短，SSE 流式收益主要在长文本，留作后续。取消是 best-effort（协程取消 + `finally` `disconnect()`，阻塞读跑完丢弃）。推理模型（`reasoner`/`o1`-`o4`）请求体省略 `temperature`（它们拒收）。
+
+**⚠️ 本阶段设备级全程未测。** 网络、`SpeechRecognizer`、`TextToSpeech`、运行时权限全是**设备运行时行为**，环境无模拟器 → 只能保证**编译通过 + 纯逻辑单测 + 推理自洽**。真机待验：配 key→测试连接 ✅/❌→演示中文字/语音问"下一步/为什么这格"驱动同一演示；断网/未配 key 回退按钮走查；退后台麦克风确实停。这是 10.4 唯一未闭环项，比 10.2/10.3 的未测面更大（那俩只是 UI 点击，这个含外部 IO）。
+
+**小坑**：`SpeechRecognizer` 的常量是 `ERROR_RECOGNIZER_BUSY`，**不是** `ERROR_BUSY`（编译期才发现）。
+
 ## 技术发现（2026-06-03）：10.3 多 Provider 设置后台落地（离线）+ 两个范围裁定
 
 **范围裁定（用户：本 App 个人自用）**：① **砍掉 10.4「首次启用全屏知情同意」P0**——单用户 BYOK、自己即开发者，两级全屏同意屏属过度设计；AI 改由"未配置 provider = 无 AI"自然门控（仍默认关）。② 连带「测试连接 / `/models` 刷新 / 推理模型请求容错」因都需出站网络（且原与同意闸门时序耦合：测试连接是**第一个出站调用**，本须先过同意）**下移 10.4** 与 HTTP 层同落。10.3 守住"无 `INTERNET` 权限"的纯离线基因。**保留** 10.4「资源绑 onStop」P0（非隐私，是后台录音/泄漏问题）。

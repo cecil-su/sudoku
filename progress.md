@@ -27,6 +27,27 @@
   - 修改：`MainActivity.kt`、`ui/screen/HomeScreen.kt`
 - 下一步：10.4 DeepSeek 接入 + 语音（HTTP/SSE + function calling 第二控制器 + 语音 I/O + 资源绑 onStop；顺带接通测试连接/`/models` 刷新）。
 
+### 阶段 10.4：DeepSeek 接入 + 语音（增强层 · 一气做）
+- **状态：** complete（设备级未测）
+- 背景：阶段 10 最重的一块——给离线演示叠上 AI"第二控制器"：玩家用文字/语音问"下一步/为什么这格"，由 LLM 经 function calling 驱动同一个 `DemoController`，并接通 10.3 缓下的测试连接/`/models`。用户选"整个 10.4 一气做"。
+- 三处简化（个人自用、降风险，已写进 task_plan/findings）：① 非流式（整段返回，SSE 留后续）；② 限流只做会话内超时/错误降级，每日上限留后续；③ JSON 用 org.json（零新依赖）。
+- 执行的操作（8 步增量，每步编译/单测兜）：
+  - manifest 加 `INTERNET` + `RECORD_AUDIO`。
+  - `ai/ChatMessage.kt`：chat 消息/工具/结果模型 + `AiException`。
+  - `ai/AiClient.kt`：`HttpURLConnection` 非流式 OpenAI 兼容客户端（`/chat/completions` + `/models`），org.json 编解码，推理模型省 `temperature`，友好错误映射，best-effort 取消。
+  - 接通编辑页「测试连接 / 拉取模型」：`SettingsViewModel.fetchModels`（测试与刷新共用），编辑页加测试按钮 + 结果 + 拉到的模型并入建议 chips（第三来源）。
+  - `ai/AiCoach.kt`：function-calling 第二控制器；system prompt 含盘面 givens + 逐步轨迹 + 当前位置 + 铁律；工具分发抽纯函数 `applyCoachTool`（1-based↔0-based，**单测**）；导航后回灌 tool 结果让模型讲解（≤4 轮，兜底补 assistant）。
+  - `ai/VoiceInput.kt`：`SpeechRecognizer` 中文封装（create/start/stop/destroy 分离）。
+  - `GameViewModel`：`activeProvider`/`aiBusy`/`coachReply` 三 StateFlow + `askCoach`（**跑在独立 `aiScope`、非 viewModelScope**）+ `stopAiWork`；演示导航/退出清 `coachReply`。
+  - `DemoPlayer`：AI 交互区（回复 + 文字框 + 发送 + 🎙️ + 思考中 + 错误）；`VoiceInput` 绑 `onDispose`/`ON_STOP`；`RECORD_AUDIO` 运行时申请；barge-in（点麦停 TTS）；TTS 优先念 AI 回复。`GameScreen`：收集新态 + `ON_STOP→stopAiWork` + 传参。`SessionTelemetry.recordAiUsed`。
+- 自查抓到并修的两个缺陷：① `stopAiWork` 取消时 `askCoach` 的 `CancellationException` 被通用 catch 吞 → 重抛；② `AiCoach.respond` `MAX_ROUNDS` 耗尽时历史以 tool 结尾（OpenAI 拒）→ 补 assistant 兜底。
+- **[评审P0]资源生命周期**：网络绑 `aiScope`（非 viewModelScope！）`ON_STOP` cancel、STT `onDispose` destroy + `ON_STOP` stop、TTS 已绑——退后台全停。
+- 验证：编译全工程 + `assembleDebug` 出 APK；66 单测全过（+11 `AiCoachToolTest`）。⚠️ 网络/STT/TTS/权限是设备运行时行为，无模拟器只能编译+逻辑自洽，真机可用待跑。
+- 创建/修改的文件：
+  - 新增：`ai/ChatMessage.kt`、`ai/AiClient.kt`、`ai/AiCoach.kt`、`ai/VoiceInput.kt`、`test/.../ai/AiCoachToolTest.kt`
+  - 修改：`AndroidManifest.xml`、`viewmodel/SettingsViewModel.kt`、`ui/screen/ProviderEditScreen.kt`、`MainActivity.kt`、`viewmodel/GameViewModel.kt`、`ui/component/DemoPlayer.kt`、`ui/screen/GameScreen.kt`、`model/SessionTelemetry.kt`
+- 下一步：10.5 复盘 + 飞轮（P1，本期可不做）；或先设备级跑通 10.2/10.3/10.4。
+
 ## 会话：2026-06-02
 
 ### 阶段 9：教学式提示系统（v1.9.0）

@@ -1,6 +1,10 @@
 package com.sudoku.game.ui.component
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.speech.tts.TextToSpeech
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
@@ -12,8 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,9 +36,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.sudoku.game.ai.VoiceInput
 import com.sudoku.game.model.DemoChallenge
 import com.sudoku.game.model.DemoController
 import java.util.Locale
@@ -54,6 +62,10 @@ fun DemoPlayer(
     onTry: () -> Unit,
     onSubmit: (Int) -> Unit,
     onCancelChallenge: () -> Unit,
+    aiAvailable: Boolean,
+    aiBusy: Boolean,
+    coachReply: String?,
+    onAsk: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val step = controller.current
@@ -89,7 +101,12 @@ fun DemoPlayer(
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
     // Don't speak during an awaiting challenge — it would read out the answer.
-    val spoken = if (awaiting) null else step?.narration
+    // Prefer the AI coach's reply when present, otherwise the engine narration.
+    val spoken = when {
+        awaiting -> null
+        coachReply != null -> coachReply
+        else -> step?.narration
+    }
     LaunchedEffect(spoken, muted, ttsReady) {
         val t = ttsRef.value
         if (muted || !ttsReady || t == null) {
@@ -98,6 +115,36 @@ fun DemoPlayer(
             t.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "demo")
         }
     }
+
+    // AI voice input (10.4): SpeechRecognizer, lifecycle-bound like the TTS above —
+    // destroyed on dispose, stopped on ON_STOP (never left listening in the background).
+    val voice = remember { VoiceInput(context) }
+    var listening by remember { mutableStateOf(false) }
+    var voiceError by remember { mutableStateOf<String?>(null) }
+    var input by remember { mutableStateOf("") }
+    DisposableEffect(Unit) { onDispose { voice.destroy() } }
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_STOP) {
+                voice.stopListening()
+                listening = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+    val startListening = {
+        ttsRef.value?.stop() // barge-in: stop the coach talking when the user starts speaking
+        voiceError = null
+        voice.startListening(
+            onResult = { onAsk(it); listening = false },
+            onError = { voiceError = it; listening = false },
+            onListeningChange = { listening = it }
+        )
+    }
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) startListening() else voiceError = "需要麦克风权限才能语音提问" }
 
     Surface(
         modifier = modifier
@@ -208,6 +255,73 @@ fun DemoPlayer(
                 if (step?.placement != null && challenge == null) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                         Button(onClick = onTry) { Text("✋ 我来填") }
+                    }
+                }
+
+                if (aiAvailable) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (coachReply != null) {
+                        Text(
+                            text = coachReply,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            placeholder = { Text("问问教练，例如：为什么这格？") },
+                            singleLine = true,
+                            enabled = !aiBusy,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = { onAsk(input); input = "" },
+                            enabled = input.isNotBlank() && !aiBusy
+                        ) { Text("发送") }
+                        if (voice.available) {
+                            TextButton(
+                                onClick = {
+                                    if (listening) {
+                                        voice.stopListening()
+                                        listening = false
+                                    } else if (ContextCompat.checkSelfPermission(
+                                            context, Manifest.permission.RECORD_AUDIO
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        startListening()
+                                    } else {
+                                        micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                },
+                                enabled = !aiBusy
+                            ) { Text(if (listening) "🔴 听…" else "🎙️") }
+                        }
+                    }
+                    if (aiBusy) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Text(
+                                text = "  教练思考中…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    voiceError?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
             }
