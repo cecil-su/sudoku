@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.sudoku.game.ai.isSecureUrl
 import com.sudoku.game.model.AiProvider
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -83,8 +84,9 @@ fun ProviderEditScreen(
     val scope = rememberCoroutineScope()
 
     val suggestions = (fetchedModels + modelSuggestions(baseUrl)).distinct()
-    val canSave = name.isNotBlank() && baseUrl.isNotBlank()
-    val canTest = baseUrl.isNotBlank() && apiKey.isNotBlank() && !testing
+    val insecureBaseUrl = baseUrl.isNotBlank() && !isSecureUrl(baseUrl)
+    val canSave = name.isNotBlank() && baseUrl.isNotBlank() && !insecureBaseUrl
+    val canTest = baseUrl.isNotBlank() && apiKey.isNotBlank() && !testing && !insecureBaseUrl
 
     fun buildProvider(): AiProvider {
         val models = (existing?.models.orEmpty() + fetchedModels + model)
@@ -149,7 +151,13 @@ fun ProviderEditScreen(
                 value = baseUrl,
                 onValueChange = { baseUrl = it },
                 label = { Text("Base URL") },
-                supportingText = { Text("OpenAI 兼容，如 https://api.deepseek.com") },
+                isError = insecureBaseUrl,
+                supportingText = {
+                    Text(
+                        if (insecureBaseUrl) "必须是 https:// 地址（避免 API Key 明文泄露）"
+                        else "OpenAI 兼容，如 https://api.deepseek.com"
+                    )
+                },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )

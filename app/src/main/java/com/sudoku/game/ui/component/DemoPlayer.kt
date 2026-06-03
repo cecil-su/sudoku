@@ -244,9 +244,11 @@ fun DemoPlayer(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onPrev, enabled = controller.hasPrev) { Text("◀ 上一步") }
-                    TextButton(onClick = onNext, enabled = controller.hasNext) { Text("下一步 ▶") }
-                    TextButton(onClick = onReplay, enabled = !controller.isAtStart) { Text("⟲ 重播") }
+                    // Disabled while the coach is mid-request: a manual move would be
+                    // clobbered when the AI reply lands on its (now stale) controller snapshot.
+                    TextButton(onClick = onPrev, enabled = controller.hasPrev && !aiBusy) { Text("◀ 上一步") }
+                    TextButton(onClick = onNext, enabled = controller.hasNext && !aiBusy) { Text("下一步 ▶") }
+                    TextButton(onClick = onReplay, enabled = !controller.isAtStart && !aiBusy) { Text("⟲ 重播") }
                     if (ttsReady) {
                         TextButton(onClick = { muted = !muted }) { Text(if (muted) "🔇" else "🔊") }
                     }
@@ -254,7 +256,7 @@ fun DemoPlayer(
                 }
                 if (step?.placement != null && challenge == null) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        Button(onClick = onTry) { Text("✋ 我来填") }
+                        Button(onClick = onTry, enabled = !aiBusy) { Text("✋ 我来填") }
                     }
                 }
 

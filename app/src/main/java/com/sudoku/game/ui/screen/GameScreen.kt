@@ -144,7 +144,7 @@ fun GameScreen(
                     onTry = { viewModel.startChallenge() },
                     onSubmit = { viewModel.submitChallenge(it) },
                     onCancelChallenge = { viewModel.dismissChallenge() },
-                    aiAvailable = activeProvider != null,
+                    aiAvailable = activeProvider?.isUsable == true,
                     aiBusy = aiBusy,
                     coachReply = coachReply,
                     onAsk = { viewModel.askCoach(it) },

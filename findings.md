@@ -5,6 +5,25 @@
 - 纯离线单机，无广告/内购
 - Kotlin + Jetpack Compose，API 26+
 
+## 技术发现（2026-06-03）：阶段 10 收口 —— AI 层静态复审（5 项遗留 S1–S5）+ 基线复验
+
+**动机**：`/clear` 续接后，整块 AI 教练（10.2/10.3/10.4）代码全绿全提交但**真机从未跑过**（环境无模拟器）。用户选"收口未测风险"。本条记录静态复审结论 + 设备冒烟清单边界 + 不改源码的决定，作为真机验证前的基线。
+
+**基线复验（亲验 HEAD，非信文档）**：`testDebugUnitTest --rerun-tasks` 强制重跑 → **66 用例 0 失败 0 错误**；`assembleDebug` 出 **10.22MB** debug APK。结论：文档声称的绿属实，HEAD `d9591ea` 可信。
+
+**静态复审总判：无"编译过但真机崩"类 bug。** 反向确认了最易错的几处实际正确：① 1-based↔0-based 接缝（`applyCoachTool` 减一 → `jumpTo` 钳位、`gotoCell` 找不到即 no-op → 模型给越界坐标安全）；② OpenAI 协议三不变量（assistant 带 tool_calls、tool 带 tool_call_id、MAX_ROUNDS 末尾补 assistant 不以 tool 结尾）；③ TOOLS 手搓 JSON 大括号配平；④ 资源生命周期 P0（网络在 `aiScope` 非 viewModelScope + ON_STOP cancel；STT onDispose destroy + ON_STOP stop；TTS dispose stop+shutdown；barge-in 停 TTS）；⑤ 网络在 `Dispatchers.IO`、aiScope 仅 Main 协调（不阻塞主线程）；⑥ "轮到你"藏结论在渲染层落实（`SudokuBoard.kt:108` 对挑战格跳过绿色结论填充）。
+
+**5 项较低级遗留（按严重度，防丢；真机验证/未来加固时逐条消化）**：
+- **S1 🟠 安全**：`AiClient.request` 给任意 `baseUrl` 都挂 `Authorization: Bearer $apiKey`，`endpoint()`/`buildProvider()` **不校验 scheme** → 用户填 `http://` 则 BYOK key 明文上链路（评审 P1 遗留）。个人自用降风险，但**是唯一带安全维度项、修复仅 ~3 行**（编辑页 `canSave`/`canTest` 或 `endpoint()` 拒非 https）。位置 `AiClient.kt:51,60-65`。
+- **S2 🟡 陷阱**：`ProviderEditScreen.kt:86` `canSave = name && baseUrl`（**不要求 model**），但 `AiClient.kt:26` `activeModel ?: models.first() ?: throw "未选择模型"` → 存"只名称+URL"的 provider 会让 AI 框出现（`aiAvailable=activeProvider!=null`）却每次发送都 ⚠️。修：保存强制 model，或 active provider 无模型时藏 AI 框。
+- **S3 🟡 竞态**：`DemoPlayer.kt:247-249` 翻页 ◀▶⟲ **未受 `aiBusy` 禁用**（仅输入框/发送/🎙️ 受控）。AI 思考中手动翻 → `demoNext` 改 `_demo`，请求返回时 `askCoach` 用调用时快照的 controller `_demo.value=` 覆盖该手动步。同主线程→**不崩、只丢一次交互**。修：翻页按钮也 `enabled = !aiBusy`。
+- **S4 🟢 健壮**：`parseChat`/`listModels` 的 `JSONObject(text)` 在 `request()` 的 try/catch **之外** → 畸形 200（如代理返 HTML）抛原始 `JSONException`（"No value for choices"）。上游 `askCoach` 通用 catch / `fetchModels` runCatching **都接住、不崩**，仅文案丑。可选包 `AiException("响应解析失败")`。
+- **S5 🟢 隐私**：`AndroidManifest.xml:11` `allowBackup="true"` + 明文 key 存 DataStore → key 随云自动备份外流（评审 P2 遗留）。可选 `dataExtractionRules` 排除 provider DataStore。
+
+**设备冒烟清单边界（只有真机能确认的）**：网络（测试连接 401/断网映射、教练问答驱动同一演示）、`SpeechRecognizer` 中文转写 + barge-in、`TextToSpeech` 中文可用性回退、运行时权限（RECORD_AUDIO 授权/拒绝）、演示三色高亮+候选删除线渲染、**退后台麦克风指示熄灭（不后台录音 P0）**。清单分 A 离线演示 / B 设置离线 / C AI 网络+语音 / D 回归 四组，含失败回退矩阵（每格落到"按钮版 100% 可用"）。
+
+**决定 + 后续（同会话）**：先复审 + 出清单 + 复验基线（未改源码）；用户随后拍板"S1–S3 打包修掉" → **S1/S2/S3 已修并测试兜底**（75 单测全绿，详见 progress 同日"收口续"条）。要点：S1 抽纯函数 `isSecureUrl` 设在 `request()` 单一 chokepoint（覆盖 chat+listModels）+ 编辑页同函数闸 `canSave`/`canTest` + `isError` 红框，**https-only 无 localhost 豁免**（YAGNI，本地 http LLM 另需再说）；S2 `AiProvider.isUsable` 落模型层、`aiAvailable` 改用它；S3 `DemoPlayer` 翻页/"我来填"加 `!aiBusy`。**S4（畸形 200 包 AiException）/S5（allowBackup 排除 key）留作可选未做。真机冒烟仍是 10.4 唯一未闭环面**（改的是闸/禁用态，真机点按未验）。
+
 ## 技术发现（2026-06-03）：10.4 DeepSeek 接入 + 语音落地（一气做）
 
 **[评审P0] 资源生命周期：AI 网络绝不能跑在 `viewModelScope`。** 本 App 的 `GameViewModel` 是 **Activity 作用域**（`MainActivity` 里 `viewModel()`），`viewModelScope` 只在 Activity 销毁（`onCleared`）才取消——**退后台不取消**。若把 AI 网络请求放 `viewModelScope`，退到后台请求仍在跑（耗流量/电、潜在泄漏），正是评审 P0 担心的。对策：VM 持一个独立 `aiScope = CoroutineScope(SupervisorJob()+Main.immediate)`，`askCoach` 跑在它上面；`GameScreen` 的 `ON_STOP` → `viewModel.stopAiWork()` `cancel()` 并重建 scope。STT 绑 `onDispose` destroy + `ON_STOP` stop，TTS 沿用 10.2。计时器用 `viewModelScope` 是对的（要跨配置变更存活），AI/麦克风用它是错的——**同一 VM 内两种 scope 策略并存**。

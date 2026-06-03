@@ -48,6 +48,35 @@
   - 修改：`AndroidManifest.xml`、`viewmodel/SettingsViewModel.kt`、`ui/screen/ProviderEditScreen.kt`、`MainActivity.kt`、`viewmodel/GameViewModel.kt`、`ui/component/DemoPlayer.kt`、`ui/screen/GameScreen.kt`、`model/SessionTelemetry.kt`
 - 下一步：10.5 复盘 + 飞轮（P1，本期可不做）；或先设备级跑通 10.2/10.3/10.4。
 
+### 阶段 10 收口：AI 层静态复审 + 设备冒烟清单 + 基线复验
+- **状态：** complete（复审 + 文档；未改任何源码）
+- 背景：`/clear` 后续接，用户裁定方向="收口未测风险"——阶段 10 代码全绿全提交，但 10.2/10.3/10.4 整块 AI 教练**真机从未跑过**（只编译+单测+逻辑自洽），且 10.4 含网络/STT/TTS/权限等纯设备行为。本环境无模拟器，我能做且不需设备的两件事：① 静态正确性复审；② 产出设备冒烟清单。
+- **基线复验**（亲验 HEAD 而非信文档）：`testDebugUnitTest --rerun-tasks` 强制重跑 → **66 用例 0 失败 0 错误**（9 个套件）；`assembleDebug` 出 **10.22MB** debug APK。文档声称的绿属实。
+- **静态复审结论**：读了 `AiClient`/`AiCoach`/`ChatMessage`/`VoiceInput`/`GameViewModel`(askCoach/aiScope/stopAiWork)/`DemoPlayer`/`GameScreen`/`SettingsViewModel`/`ProviderEditScreen`/`DemoController`。**无"编译过但真机崩"类 bug**（空安全、下标、越界坐标 no-op、TOOLS JSON 配平、OpenAI 协议三不变量、CancellationException 重抛、MAX_ROUNDS 兜底全在）。5 项较低级遗留（详见 findings 同日"收口"条，按严重度）：
+  - **S1**🟠安全：baseUrl 填 `http://` → BYOK key 明文上链路（`AiClient.kt:51,60-65` 不校验 scheme）。**唯一带安全维度，建议现在修（~3 行）**。
+  - **S2**🟡陷阱：存"只名称+URL 无模型"的 provider → AI 框出现但每次发送 `throw 未选择模型`（`ProviderEditScreen.kt:86` canSave 不要 model ↔ `AiClient.kt:26`）。
+  - **S3**🟡竞态：AI 思考中翻页按钮未禁用，手动翻被 stale 快照覆盖（`DemoPlayer.kt:247-249`，同主线程→不崩、丢交互）。
+  - **S4**🟢健壮：畸形 200 抛原始 JSONException（`parseChat` 在 `request()` try 外），上游接住不崩、文案丑。
+  - **S5**🟢隐私：`allowBackup=true` 把明文 key 带进云备份（评审 P2 遗留）。
+  - 反向确认正确的高风险点：1-based↔0-based 接缝、资源生命周期 P0（aiScope 非 viewModelScope、STT/TTS 绑 onStop/dispose、barge-in）、网络在 `Dispatchers.IO`、"轮到你"藏结论（`SudokuBoard.kt:108` 跳过挑战格绿填充）。
+- **设备冒烟清单**（只有真机能确认的，按 A 离线演示 / B 设置 / C AI 网络+语音 / D 回归 四组，含失败回退矩阵与"退后台麦克风熄灭"P0 验证）已在本会话输出给用户；要点：演示三色高亮+删除线渲染、TTS 中文可用性回退、测试连接 401/断网映射、语音转写+barge-in、退后台 cancel。
+- 未改源码（用户选的是"复审+清单"，非"加固"）。S1–S3 是否顺手修留待用户拍板。
+- 创建/修改的文件：仅文档（`task_plan.md`/`progress.md`/`findings.md`）。
+
+### 阶段 10 收口续：修 S1–S3（用户拍板"打包修掉"）
+- **状态：** complete（75 单测全绿 + APK）
+- 三处修复，均沿用既有"抽纯函数单测、IO/org.json 接缝不测"范式：
+  - **S1 https 强制**：`AiClient` 抽顶层纯函数 `isSecureUrl(url)`（trim + `startsWith("https://", ic)`）→ `request()` 入口设防（**单一 chokepoint，同时覆盖 chat 与 listModels**，给任意非 https URL 抛 `AiException("仅支持 https…")`）；编辑页 `ProviderEditScreen` 接同一函数：`canSave`/`canTest` 加 `!insecureBaseUrl` 闸、baseURL 字段 `isError` 红框 + 文案"必须 https://"。**决定 https-only（无 localhost 碰巧豁免）**——预置都是远端 https，YAGNI；本地 http LLM 是另需再说。
+  - **S2 无模型 provider 门控**：`AiProvider` 加 `val isUsable get() = activeModel != null || models.isNotEmpty()`（**职责落模型层**）；`GameScreen` 的 `aiAvailable = activeProvider?.isUsable == true`——存了"只名称+URL"的 provider 不再假装可用（自然门控，合"未配置=无AI"基因）。未动 `canSave`（不过度约束编辑页，允许先存半成品回头补）。
+  - **S3 翻页竞态**：`DemoPlayer` 的 ◀▶⟲ 加 `&& !aiBusy`、"✋我来填"加 `enabled = !aiBusy`——AI 思考中禁止改 demo 态，杜绝"手动翻被 stale 快照覆盖"。
+- 新增单测：`ai/AiClientTest`（5：https/大小写/去空白/http拒/其他scheme拒）、`model/AiProviderTest`（4：isUsable 四组合）。
+- 验证：`testDebugUnitTest assembleDebug` 实际执行（非缓存）→ **75 用例 0 失败 0 错误**（11 套件，66→75）；APK 10.28MB。
+- 未做：S4（畸形 200 包 AiException）/S5（allowBackup 排除 key）按用户意留作可选；**真机冒烟仍是唯一未闭环面**（S1–S3 改的是编辑页/网络闸/UI 禁用态，真机点按仍待验）。
+- 创建/修改的文件：
+  - 新增：`test/.../ai/AiClientTest.kt`、`test/.../model/AiProviderTest.kt`
+  - 修改：`ai/AiClient.kt`、`model/AiProvider.kt`、`ui/screen/GameScreen.kt`、`ui/screen/ProviderEditScreen.kt`、`ui/component/DemoPlayer.kt`
+- 下一步：真机跑冒烟清单 / 10.5 复盘飞轮（P1）/ 发版 v1.10.0（建议真机后）。
+
 ## 会话：2026-06-02
 
 ### 阶段 9：教学式提示系统（v1.9.0）
@@ -173,11 +202,11 @@
 ## 五问重启检查
 | 问题 | 答案 |
 |------|------|
-| 我在哪里？ | 阶段 1-9 已完成并发布；阶段 10 已规划+评审加固；**10.1 演示引擎 + 10.2 演示播放器 UI 已实现并测试通过（47 单测全绿 + assembleDebug 出 APK；未提交、设备级手动点击待做）** |
-| 我要去哪里？ | **下一步：10.3 多 Provider 设置后台**——`providers[]`(id/name/baseURL/apiKey/models)+active 存 DataStore；主页加设置入口(齿轮) + NavHost 加 settings/provider_edit 路由；Provider 列表/编辑页(Key 遮罩/模型清单三来源/测试连接)。之后 10.4 DeepSeek+语音 → 10.5 复盘(P1) |
-| 目标是什么？ | 给已发布的数独 App 加"AI 语音教练"：棋盘分步高亮 + 旁白走查解题；确定性骨架离线可跑，DeepSeek 作第二控制器。范围 = 完整版多 provider + 本期上语音 |
-| 我学到了什么？ | 见 findings.md 顶部五条（均 2026-06-02）：「10.2 演示播放器落地」、「10.1 演示引擎落地」(共享内核+链式断点已修)、「设计评审·第三会话」、「设计决策·第二会话」、「教学式提示系统」 |
-| 我做了什么？ | 三轮规划会话后连做两块实现：**10.1**（`stepForward` 共享内核 + `DemoStep`/`demoTrajectory` 修复链式断点）+ **10.2**（`DemoController` 纯状态机 + 棋盘分阶段高亮叠加层 + `DemoPlayer` 字幕/控制/默认静音 TTS +「轮到你」复现 + `SessionTelemetry` 埋点起步）；两个评审 P0 落地，生成器/阶段 9 高亮零回归 |
+| 我在哪里？ | 阶段 1-9 已发布；**阶段 10（AI 语音教练）10.1–10.4 全部实现并提交**（HEAD `d9591ea` + 工作区有 S1–S3 修复**未提交**）。**10.4 已静态复审（无崩溃类 bug）+ 冒烟清单已出 + 修复 S1–S3（https 强制/无模型门控/翻页竞态）+ 新增 2 测试，75 单测全绿 + 10.28MB APK**。S4/S5 可选未做。版本号仍停 `1.9.0/versionCode 6`（阶段 10 未升版未发版） |
+| 我要去哪里？ | 三选一：**① 提交 S1–S3 修复**（工作区待提交，用户未发提交指令前不提）；**② 真机跑冒烟清单**（网络/STT/TTS/权限/渲染，唯一未闭环面，需设备+key）；**③ 10.5 复盘+飞轮**（P1，埋点已采集、本期可不做）。之后才考虑发版 v1.10.0 |
+| 目标是什么？ | 给已发布数独 App 加"AI 语音教练"：棋盘分步高亮 + 旁白走查；确定性骨架离线可跑，DeepSeek 作第二控制器经 function-calling 驱动同一 `DemoController`。范围 = 完整版多 provider + 本期上语音 |
+| 我学到了什么？ | 见 findings.md 顶部条目：「阶段 10 收口·静态复审」(2026-06-03，S1–S5 遗留 + 基线复验)、「10.4 DeepSeek+语音落地」(aiScope 非 viewModelScope/取消重抛/tool 不结尾/1-based 接缝)、「10.3 多 provider 后台」、「10.2 演示播放器」、「10.1 共享内核+链式断点」 |
+| 我做了什么？ | 本会话：`/clear` 续接 → 恢复任务态 → 用户选"收口未测风险" → AI 层静态复审（10 文件，无崩溃 bug，列 S1–S5）+ 基线复验 + 四组冒烟清单 → 用户选"S1–S3 打包修掉" → 修 S1（isSecureUrl 闸）/S2（isUsable 门控）/S3（!aiBusy 守卫）+ 2 新测试，75 单测全绿 + 10.28MB APK。S1–S3 修复在工作区**未提交** |
 
 ---
 *每个阶段完成后或遇到错误时更新此文件*

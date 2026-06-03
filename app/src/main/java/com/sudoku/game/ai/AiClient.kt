@@ -58,6 +58,8 @@ class AiClient {
         request(url, apiKey, "GET", null)
 
     private fun request(url: String, apiKey: String, method: String, body: String?): String {
+        // Never send the BYOK key over cleartext — https only (see [isSecureUrl]).
+        if (!isSecureUrl(url)) throw AiException("仅支持 https 地址（避免 API Key 明文泄露）")
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 15_000
@@ -139,3 +141,9 @@ class AiClient {
         model.contains("reasoner", ignoreCase = true) ||
             model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4")
 }
+
+/** True iff [url] is an https endpoint — the only scheme we send the API key over,
+ *  so a misconfigured `http://` base can't leak the BYOK key in cleartext. Pure
+ *  (no IO / org.json) so it's unit-testable and shared with the provider editor. */
+internal fun isSecureUrl(url: String): Boolean =
+    url.trim().startsWith("https://", ignoreCase = true)
