@@ -3,7 +3,6 @@ package com.sudoku.game.ui.screen
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,7 +66,8 @@ fun GameScreen(
     val activeProvider by viewModel.activeProvider.collectAsState()
     val aiBusy by viewModel.aiBusy.collectAsState()
     val coachReply by viewModel.coachReply.collectAsState()
-    val isDarkTheme = isSystemInDarkTheme()
+    // Derive board light/dark from the active theme (handles explicit + dynamic + warm).
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {

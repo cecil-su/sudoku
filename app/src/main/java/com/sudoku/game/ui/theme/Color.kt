@@ -10,6 +10,18 @@ val Blue80 = Color(0xFF90CAF9)
 val BlueGrey80 = Color(0xFFB0BEC5)
 val Teal80 = Color(0xFF80CBC4)
 
+// Warm eye-care palette — cream background + warm amber accents (light-based)
+val WarmPrimary = Color(0xFFB5651D)
+val WarmPrimaryContainer = Color(0xFFFFDCC2)
+val WarmOnPrimaryContainer = Color(0xFF3A1A00)
+val WarmSecondary = Color(0xFF8C6E54)
+val WarmTertiary = Color(0xFF6E7D4F)
+val WarmBackground = Color(0xFFFAF3E0)
+val WarmSurface = Color(0xFFFAF3E0)
+val WarmSurfaceVariant = Color(0xFFEFE3CE)
+val WarmOnSurface = Color(0xFF3A322A)
+val WarmOnSurfaceVariant = Color(0xFF5C5142)
+
 // Game-specific colors — Light
 val PresetNumberColor = Color(0xFF212121)
 val PlayerNumberColor = Color(0xFF1565C0)

@@ -1,5 +1,21 @@
 # 进度日志
 
+## 会话：2026-06-04
+
+### 阶段 11 增量 1+2：游戏设置页 + 暖色主题
+- **状态：** complete（已提交，未推送）
+- 续接：上一轮用户"先停，我要调整"，本轮"按你的建议推进"→ 先提交增量 1 数据层基线，再接线 UI。
+- **增量 1 提交 `221814f`** feat(settings)：`GameSettings` + `ThemeChoice`/`ErrorCheckMode` 枚举（容错 `fromName`）+ `GameSettingsRepository`（DataStore "game_settings"）+ 4 测试 + `roadmap.md`。纯新增数据层、零行为改动。（提交标题首次混入 `@` 字符，已 `--amend` 修正）
+- **增量 2** feat(theme)：
+  - `Color.kt` 加暖色护眼调色板（`#FAF3E0` 米黄底 + 暖橙 `#B5651D` accent）。
+  - `Theme.kt` 的 `SudokuTheme` 由 `darkTheme: Boolean` 改为 `theme: ThemeChoice`；**显式选择（LIGHT/DARK/WARM）关闭 dynamicColor**，仅 SYSTEM 走 Material You——否则选了暗色却被动态取色覆盖。
+  - `GameScreen` 棋盘明暗原直接 `isSystemInDarkTheme()`，会无视显式选择；改为 `colorScheme.background.luminance() < 0.5f` 推断，一行覆盖显式/动态/暖色全部情况。
+  - 新 `GameSettingsViewModel`（镜像 `SettingsViewModel`）+ 新 `GameSettingsScreen`（主题单选 + "AI 教练设置"跳转行）。
+  - `MainActivity`：`GameSettingsViewModel` 提到 `SudokuTheme` 之上驱动主题；齿轮 `settings` → `game_settings`；原 AI 设置路由降级为 `ai_settings` 子项。
+  - 设置页只放"已生效"的控件（主题 + AI 入口）；音效/查错/计时器等留到对应增量随行为一起加，避免死控件。
+- **verify：** 79 单测全绿（主题为纯 UI 接线，可测逻辑已在增量 1 覆盖）+ APK 构建通过。
+- **下一步：** 增量 3（错误检查模式：`GameViewModel.updateErrors` 按 `ErrorCheckMode` 条件化 + 手动「检查」入口）。
+
 ## 会话：2026-06-03
 
 ### 提交 10.1 + 10.2（拆两提交）

@@ -160,12 +160,12 @@
 把只管 AI Provider 的 Settings 扩成完整设置页：主题（含暖色）/ 错误检查模式 / 音效 / 自动笔记 / 计时器隐藏。
 
 - [x] **增量 1（基建 · 无 UX 决策）**：`model/GameSettings`（不可变 holder + `ThemeChoice{系统/亮/暗/暖}`/`ErrorCheckMode{即时/手动/不检查}` 两枚举，各带 `label` + 容错 `fromName` 降级）+ `data/GameSettingsRepository`（DataStore "game_settings"，照 `StatsRepository` 范式，损坏值经 `fromName` 降级）+ `GameSettingsTest`（4 测试，纯 `fromName`/默认）→ verify：编译 + 全测绿 + APK
-- [ ] **增量 2（暖色主题）**：`Color.kt` 加 `WarmColorScheme`（米黄底护眼）+ `Theme.kt` 的 `SudokuTheme` 接 `ThemeChoice`（覆盖 `isSystemInDarkTheme` + 暖色关 `dynamicColor`）+ `MainActivity` 顶层读 `GameSettings.theme` 传入 + `SettingsScreen` 加主题单选 → verify：四种主题切换即时生效，重启保持
+- [x] **增量 2（暖色主题 + 设置页落地）**：`Color.kt` 加 `WarmColorScheme`（`#FAF3E0` 米黄底 + 暖橙 accent）+ `Theme.kt` 的 `SudokuTheme(theme: ThemeChoice)`（显式选择关 `dynamicColor`，仅 SYSTEM 走 Material You）+ `MainActivity` 顶层 `GameSettingsViewModel` 驱动主题、齿轮改开 `game_settings`、AI 设置降为子路由 `ai_settings` + 新 `GameSettingsScreen`（主题单选 + AI 入口行）+ `GameScreen` 棋盘明暗改由 `colorScheme.background` 亮度推断（让显式 DARK/LIGHT/WARM 同步棋盘）→ verify：编译 + 79 测绿 + APK ✓
 - [ ] **增量 3（错误检查模式）**：`GameViewModel.updateErrors` 按 `ErrorCheckMode` 条件化（即时＝现状 / 手动＝点「检查」才标红 / 不检查＝从不标红，但 `isComplete` 仍照常校验完成）+ `NumberPad`/UI 加手动「检查」入口 → verify：三模式行为正确、完成判定不受影响
 - [ ] **增量 4（音效 + 小开关）**：完成/填入 `SoundPool`（受 `soundEnabled`）+ `autoRemoveNotes` 守卫 `removeNotesFromPeers` + `showTimer` 条件渲染计时条 → verify：开关即时生效
-- [ ] **设置页重构**：`SettingsScreen` 分组（游戏设置 + AI 教练入口），新 `GameSettingsViewModel` 或并入既有
-- **决策待定（增量 2/3 开工前问用户）**：暖色配色具体色值；错误检查默认模式（建议 即时，保持现状）
-- **状态：** in_progress（增量 1 complete）
+- [x] **设置页落地**：新 `GameSettingsScreen` + `GameSettingsViewModel`；齿轮 → `game_settings`，AI 设置移到 `ai_settings` 子项（随增量 2 一并完成）
+- **决策待定（增量 3 开工前可问用户）**：错误检查默认模式（现取 即时＝保持现状）；暖色色值（已取 `#FAF3E0`+暖橙，可再调）
+- **状态：** in_progress（增量 1、2 complete；下一步增量 3 错误检查模式）
 
 ## 关键问题
 1. ~~使用 Jetpack Compose 还是传统 XML 布局？~~ → **Jetpack Compose**

@@ -24,10 +24,12 @@ import androidx.navigation.navArgument
 import androidx.compose.runtime.collectAsState
 import com.sudoku.game.model.Difficulty
 import com.sudoku.game.ui.screen.GameScreen
+import com.sudoku.game.ui.screen.GameSettingsScreen
 import com.sudoku.game.ui.screen.HomeScreen
 import com.sudoku.game.ui.screen.ProviderEditScreen
 import com.sudoku.game.ui.screen.SettingsScreen
 import com.sudoku.game.ui.theme.SudokuTheme
+import com.sudoku.game.viewmodel.GameSettingsViewModel
 import com.sudoku.game.viewmodel.GameViewModel
 import com.sudoku.game.viewmodel.SettingsViewModel
 
@@ -36,7 +38,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            SudokuTheme {
+            val gameSettingsViewModel: GameSettingsViewModel = viewModel()
+            val gameSettings by gameSettingsViewModel.settings.collectAsState()
+            SudokuTheme(theme = gameSettings.theme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -83,7 +87,7 @@ class MainActivity : ComponentActivity() {
                                     gameViewModel.continueGame()
                                     navController.navigate("game") { launchSingleTop = true }
                                 },
-                                onOpenSettings = { navController.navigate("settings") },
+                                onOpenSettings = { navController.navigate("game_settings") },
                                 hasSavedGame = hasSaved,
                                 stats = stats
                             )
@@ -94,7 +98,15 @@ class MainActivity : ComponentActivity() {
                                 onBack = { navController.popBackStack() }
                             )
                         }
-                        composable("settings") {
+                        composable("game_settings") {
+                            GameSettingsScreen(
+                                settings = gameSettings,
+                                onSelectTheme = { gameSettingsViewModel.setTheme(it) },
+                                onOpenAiSettings = { navController.navigate("ai_settings") },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("ai_settings") {
                             val settings by settingsViewModel.settings.collectAsState()
                             SettingsScreen(
                                 settings = settings,
