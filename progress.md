@@ -77,6 +77,18 @@
   - 修改：`ai/AiClient.kt`、`model/AiProvider.kt`、`ui/screen/GameScreen.kt`、`ui/screen/ProviderEditScreen.kt`、`ui/component/DemoPlayer.kt`
 - 下一步：真机跑冒烟清单 / 10.5 复盘飞轮（P1）/ 发版 v1.10.0（建议真机后）。
 
+### roadmap 落盘 + 阶段 11（游戏设置页）增量 1
+- **状态：** 增量 1 complete（基建层；增量 2-4 待做）
+- 背景：用户问"还有未开发功能吗"→ 我用代码核实（grep 0 匹配 + `SettingsScreen` 仅管 Provider）列出"规划过未实现"的，给看法 → 用户要"非低价值项"的实现计划 → 我读 `SudokuGenerator`/`Validator`/`GameState`/`Theme`/`SessionTelemetry`/`StatsRepository`/`Difficulty`/`MainActivity` 导航做地基核实 → 出 5 功能计划（①设置页 ②复盘 ③技巧训练 ④冲刺 ⑤变体）+ 两条复用接缝（A 技巧定向出题 / B 埋点持久化）→ 用户"要"→ 写 `roadmap.md` + 开工 ①。
+- **`roadmap.md`（新）**：5 功能 backlog + 接缝 A/B + 推荐序；声明不替代 `task_plan.md`、已排除低价值项（成就/段位/打卡）。
+- **阶段 11 增量 1（基建，零 UX 决策、可回退）**：
+  - `model/GameSettings.kt`：不可变 holder（theme/errorCheck/soundEnabled/autoRemoveNotes/showTimer）+ `ThemeChoice{系统/亮/暗/暖}`、`ErrorCheckMode{即时/手动/不检查}` 两枚举，各带中文 `label`（照 `Difficulty` 范式）+ 容错 `fromName`（未知/null 降级默认，应对持久化损坏值）。
+  - `data/GameSettingsRepository.kt`：DataStore "game_settings"（名唯一，已 grep 确认不撞 `game_stats`/`ai_settings`）；`Context.gameSettingsDataStore` 文件私有扩展（不撞 `StatsRepository` 的同名私有扩展）；枚举经 `fromName` 解码降级——照 `StatsRepository`/"损坏降级"范式。
+  - `test/.../model/GameSettingsTest.kt`：4 测试（默认值 + 两枚举 `fromName` 往返/降级）——沿用"抽纯逻辑单测、DataStore 接缝不测"范式。
+- 验证：`testDebugUnitTest assembleDebug` 实际执行 → **79 用例 0 失败**（75→79，+4）、12 套件、APK 10.32MB。无行为改动（纯新增数据层）。
+- 创建/修改：新增 `roadmap.md`、`model/GameSettings.kt`、`data/GameSettingsRepository.kt`、`test/.../GameSettingsTest.kt`；改 `task_plan.md`（加阶段 11 + 增量拆解）/`progress.md`/`roadmap.md`。**未提交**。
+- 下一步：增量 2（暖色主题）——开工前需用户定 ① 暖色具体色值 ② 错误检查默认模式。
+
 ## 会话：2026-06-02
 
 ### 阶段 9：教学式提示系统（v1.9.0）

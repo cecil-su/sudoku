@@ -4,7 +4,7 @@
 开发一个功能完整、体验流畅的 Android 数独游戏，支持多难度级别、笔记标记、提示、计时等核心功能。
 
 ## 当前阶段
-阶段 10 进行中：**10.1 演示引擎 + 10.2 演示播放器 UI + 10.3 多 Provider 设置后台 + 10.4 DeepSeek 接入 + 语音 已完成**（10.1/10.2：2026-06-02；10.3/10.4：2026-06-03）。10.1：三方检测统一到 `stepForward` 共享内核 + `DemoStep.eliminatedCells` + `demoTrajectory`（修复链式断点）。10.2：离线演示播放器（`DemoController` 纯状态机 + 棋盘分阶段高亮叠加层 + 字幕/播放控制 + 默认静音 TTS + 「轮到你」复现校验 + 会话埋点起步）。10.3：`AiProvider`/`AiSettings` 不可变模型 + `ProviderRepository`（DataStore/org.json）+ 设置入口/路由 + Provider 列表/编辑/增删改/切换 + 预置&手动模型；55 单测全过 + `assembleDebug` 出 APK。**范围调整（个人自用）**：砍掉 10.4「首次启用全屏知情同意」P0，连带「🔌测试连接 / 🔄刷新 `/models` / 推理模型请求容错」（均需出站网络）下移 10.4（本会话已随 10.4 一并落地）。10.4：`AiClient`（非流式 HTTP）+ `AiCoach`（function-calling 第二控制器）+ `VoiceInput`（中文 STT）+ TTS 朗读 + 资源绑 onStop + 接通测试连接/`/models`；66 单测全过 + APK，**设备级未测**。**10.4 收口（2026-06-03 续）**：AI 层静态复审（**无崩溃类 bug**；5 项较低级遗留）+ **设备冒烟清单已出** + **基线复验** + **修复 S1–S3**：S1 https 强制（抽纯函数 `isSecureUrl` 设 `request()` 单 chokepoint + 编辑页同函数闸/红框，https-only）、S2 无模型 provider 门控（`AiProvider.isUsable` → `aiAvailable`）、S3 翻页 vs AI 竞态（`!aiBusy` 守卫）；新增 `AiClientTest`/`AiProviderTest`，**75 单测全绿 + 10.28MB APK**。S4（畸形 200）/S5（备份带 key）留作可选未做（详见 findings/progress 同日"收口"条）。**下一步：真机跑冒烟清单（唯一未闭环面）/ 10.5 复盘飞轮（P1）/ 发版 v1.10.0（建议真机后）**。v1.x 主体（阶段 1-9）已全部完成。
+阶段 10 进行中：**10.1 演示引擎 + 10.2 演示播放器 UI + 10.3 多 Provider 设置后台 + 10.4 DeepSeek 接入 + 语音 已完成**（10.1/10.2：2026-06-02；10.3/10.4：2026-06-03）。10.1：三方检测统一到 `stepForward` 共享内核 + `DemoStep.eliminatedCells` + `demoTrajectory`（修复链式断点）。10.2：离线演示播放器（`DemoController` 纯状态机 + 棋盘分阶段高亮叠加层 + 字幕/播放控制 + 默认静音 TTS + 「轮到你」复现校验 + 会话埋点起步）。10.3：`AiProvider`/`AiSettings` 不可变模型 + `ProviderRepository`（DataStore/org.json）+ 设置入口/路由 + Provider 列表/编辑/增删改/切换 + 预置&手动模型；55 单测全过 + `assembleDebug` 出 APK。**范围调整（个人自用）**：砍掉 10.4「首次启用全屏知情同意」P0，连带「🔌测试连接 / 🔄刷新 `/models` / 推理模型请求容错」（均需出站网络）下移 10.4（本会话已随 10.4 一并落地）。10.4：`AiClient`（非流式 HTTP）+ `AiCoach`（function-calling 第二控制器）+ `VoiceInput`（中文 STT）+ TTS 朗读 + 资源绑 onStop + 接通测试连接/`/models`；66 单测全过 + APK，**设备级未测**。**10.4 收口（2026-06-03 续）**：AI 层静态复审（**无崩溃类 bug**；5 项较低级遗留）+ **设备冒烟清单已出** + **基线复验** + **修复 S1–S3**：S1 https 强制（抽纯函数 `isSecureUrl` 设 `request()` 单 chokepoint + 编辑页同函数闸/红框，https-only）、S2 无模型 provider 门控（`AiProvider.isUsable` → `aiAvailable`）、S3 翻页 vs AI 竞态（`!aiBusy` 守卫）；新增 `AiClientTest`/`AiProviderTest`，**75 单测全绿 + 10.28MB APK**。S4（畸形 200）/S5（备份带 key）留作可选未做（详见 findings/progress 同日"收口"条）。**下一步：真机跑冒烟清单（唯一未闭环面）/ 10.5 复盘飞轮（P1）/ 发版 v1.10.0（建议真机后）**。**阶段 11（roadmap ① 游戏设置页）已启动**——增量 1（`GameSettings`+`GameSettingsRepository`+测试）已落，详见下方阶段 11 + `roadmap.md`（5 个扩展功能 backlog）。v1.x 主体（阶段 1-9）已全部完成。
 
 ## 各阶段
 
@@ -152,6 +152,20 @@
 - [ ] ~~会话埋点~~ → **已上移到 10.2（P0）**，P0 期即开始攒数据，避免"数据断流"
 - [ ] 复盘全屏页（复用演示播放器回放整局 + 读取 10.2 埋点）+ 按弱项定向出题
 - **状态：** pending
+
+## 阶段 11：游戏设置页（roadmap ① · 基础设施先行）
+
+> 来源：`roadmap.md` 的 5 个扩展功能里，用户选了"非低价值"的全部（①设置页 / ②复盘 / ③技巧训练 / ④冲刺 / ⑤变体），并选 ① 先做（基础设施，其余开关往这挂）。低价值项（成就/段位/打卡）已排除。
+
+把只管 AI Provider 的 Settings 扩成完整设置页：主题（含暖色）/ 错误检查模式 / 音效 / 自动笔记 / 计时器隐藏。
+
+- [x] **增量 1（基建 · 无 UX 决策）**：`model/GameSettings`（不可变 holder + `ThemeChoice{系统/亮/暗/暖}`/`ErrorCheckMode{即时/手动/不检查}` 两枚举，各带 `label` + 容错 `fromName` 降级）+ `data/GameSettingsRepository`（DataStore "game_settings"，照 `StatsRepository` 范式，损坏值经 `fromName` 降级）+ `GameSettingsTest`（4 测试，纯 `fromName`/默认）→ verify：编译 + 全测绿 + APK
+- [ ] **增量 2（暖色主题）**：`Color.kt` 加 `WarmColorScheme`（米黄底护眼）+ `Theme.kt` 的 `SudokuTheme` 接 `ThemeChoice`（覆盖 `isSystemInDarkTheme` + 暖色关 `dynamicColor`）+ `MainActivity` 顶层读 `GameSettings.theme` 传入 + `SettingsScreen` 加主题单选 → verify：四种主题切换即时生效，重启保持
+- [ ] **增量 3（错误检查模式）**：`GameViewModel.updateErrors` 按 `ErrorCheckMode` 条件化（即时＝现状 / 手动＝点「检查」才标红 / 不检查＝从不标红，但 `isComplete` 仍照常校验完成）+ `NumberPad`/UI 加手动「检查」入口 → verify：三模式行为正确、完成判定不受影响
+- [ ] **增量 4（音效 + 小开关）**：完成/填入 `SoundPool`（受 `soundEnabled`）+ `autoRemoveNotes` 守卫 `removeNotesFromPeers` + `showTimer` 条件渲染计时条 → verify：开关即时生效
+- [ ] **设置页重构**：`SettingsScreen` 分组（游戏设置 + AI 教练入口），新 `GameSettingsViewModel` 或并入既有
+- **决策待定（增量 2/3 开工前问用户）**：暖色配色具体色值；错误检查默认模式（建议 即时，保持现状）
+- **状态：** in_progress（增量 1 complete）
 
 ## 关键问题
 1. ~~使用 Jetpack Compose 还是传统 XML 布局？~~ → **Jetpack Compose**
