@@ -123,7 +123,7 @@ fun GameScreen(
                 val challenge = demoChallenge
                 val awaiting = challenge != null && challenge.result == null
                 val blankCell = if (awaiting) challenge!!.row to challenge.col else null
-                val demoBoard = remember(state, activeDemo, demoChallenge) {
+                val demoBoard = remember(state, activeDemo, blankCell) {
                     buildDemoBoard(state, activeDemo, blankCell)
                 }
                 SudokuBoard(

@@ -73,7 +73,6 @@ fun DemoPlayer(
 
     // TTS shown muted by default; speak the current narration only when unmuted.
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     var muted by remember { mutableStateOf(true) }
     var ttsReady by remember { mutableStateOf(false) }
     val ttsRef = remember { mutableStateOf<TextToSpeech?>(null) }
@@ -93,13 +92,7 @@ fun DemoPlayer(
             ttsRef.value = null
         }
     }
-    DisposableEffect(lifecycleOwner) {
-        val obs = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_STOP) ttsRef.value?.stop()
-        }
-        lifecycleOwner.lifecycle.addObserver(obs)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
-    }
+    OnLifecycleStop { ttsRef.value?.stop() }
     // Don't speak during an awaiting challenge — it would read out the answer.
     // Prefer the AI coach's reply when present, otherwise the engine narration.
     val spoken = when {
@@ -123,15 +116,9 @@ fun DemoPlayer(
     var voiceError by remember { mutableStateOf<String?>(null) }
     var input by remember { mutableStateOf("") }
     DisposableEffect(Unit) { onDispose { voice.destroy() } }
-    DisposableEffect(lifecycleOwner) {
-        val obs = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_STOP) {
-                voice.stopListening()
-                listening = false
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(obs)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    OnLifecycleStop {
+        voice.stopListening()
+        listening = false
     }
     val startListening = {
         ttsRef.value?.stop() // barge-in: stop the coach talking when the user starts speaking
@@ -328,5 +315,19 @@ fun DemoPlayer(
                 }
             }
         }
+    }
+}
+
+/** Runs [onStop] whenever the host moves to ON_STOP (e.g. backgrounded) — used to
+ *  halt audio resources that must never keep running while off-screen. */
+@Composable
+private fun OnLifecycleStop(onStop: () -> Unit) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_STOP) onStop()
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 }

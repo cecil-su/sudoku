@@ -409,22 +409,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         timerJob = null
     }
 
-    fun demoNext() {
-        _demoChallenge.value = null
-        _coachReply.value = null
-        _demo.value = _demo.value?.next()
-    }
+    fun demoNext() = navigateDemo { next() }
 
-    fun demoPrev() {
-        _demoChallenge.value = null
-        _coachReply.value = null
-        _demo.value = _demo.value?.prev()
-    }
+    fun demoPrev() = navigateDemo { prev() }
 
-    fun demoReplay() {
+    fun demoReplay() = navigateDemo { replay() }
+
+    /** Moves the demo controller and clears any per-step challenge / coach reply. */
+    private fun navigateDemo(move: DemoController.() -> DemoController) {
         _demoChallenge.value = null
         _coachReply.value = null
-        _demo.value = _demo.value?.replay()
+        _demo.value = _demo.value?.move()
     }
 
     fun exitDemo() {

@@ -56,12 +56,13 @@ class AiCoach(private val client: AiClient = AiClient()) {
 
     private fun execute(ctrl: DemoController, call: ToolCall): DemoController {
         val args = runCatching { JSONObject(call.arguments) }.getOrNull() ?: JSONObject()
+        fun arg(key: String): Int? = if (args.has(key)) args.optInt(key) else null
         return applyCoachTool(
             ctrl = ctrl,
             name = call.name,
-            index = if (args.has("index")) args.optInt("index") else null,
-            row = if (args.has("row")) args.optInt("row") else null,
-            col = if (args.has("col")) args.optInt("col") else null
+            index = arg("index"),
+            row = arg("row"),
+            col = arg("col")
         )
     }
 
